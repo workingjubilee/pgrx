@@ -99,6 +99,27 @@ fn return_zero_length_vec() -> Vec<i32> {
     Vec::new()
 }
 
+// This deliberately iterates the Array.
+// Because Array::iter currently iterates the Array as Datums, this is guaranteed to be "bug-free" regarding size.
+#[pg_extern]
+fn arr_mapped_vec(arr: Array<i32>) -> Vec<i32> {
+    arr.iter().filter_map(|x| x).collect()
+}
+
+/// Naive conversion. This causes errors if Array::as_slice doesn't handle differently sized slices well.
+#[pg_extern]
+fn arr_into_vec(arr: Array<i32>) -> Vec<i32> {
+    arr.as_slice().to_vec()
+}
+
+#[pg_extern]
+fn arr_sort_uniq(arr: Array<i32>) -> Vec<i32> {
+    let mut v: Vec<i32> = arr.as_slice().into();
+    v.sort();
+    v.dedup();
+    v
+}
+
 #[cfg(any(test, feature = "pg_test"))]
 #[pgx::pg_schema]
 mod tests {
@@ -239,5 +260,21 @@ mod tests {
         })
         .expect("Failed to return json even though it's right there ^^");
         assert_eq!(json.0, json! {{"values": [1, 2, 3, null, 4]}});
+    }
+
+    #[pg_test]
+    fn test_arr_to_vec() {
+        let result = Spi::get_one::<Vec<i32>>("SELECT arr_mapped_vec(ARRAY[3,2,2,1]::integer[])");
+        let other = Spi::get_one::<Vec<i32>>("SELECT arr_into_vec(ARRAY[3,2,2,1]::integer[])");
+        // One should be equivalent to the canonical form.
+        assert_eq!(result, Some(vec![3, 2, 2, 1]));
+        // And they should be equal to each other.
+        assert_eq!(result, other);
+    }
+
+    #[pg_test]
+    fn test_arr_sort_uniq() {
+        let result = Spi::get_one::<Vec<i32>>("SELECT arr_sort_uniq(ARRAY[3,2,2,1]::integer[])");
+        assert_eq!(result, Some(vec![1, 2, 3]));
     }
 }
