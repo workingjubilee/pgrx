@@ -25,6 +25,28 @@ pub struct Array<'a, T: FromDatum> {
     _marker: PhantomData<T>,
 }
 
+enum DataKind<'a, T> {
+    Ref(&'a [pg_sys::Datum]),
+    Val(&'a [T]),
+}
+
+impl<'a, T> DataKind<'a, T>
+where T: FromDatum + Clone {
+    fn get_datum(&self, index: usize, is_null: bool) -> Option<T> {
+        match self {
+            Self::Ref(d) => unsafe { T::from_datum(d[index], is_null) },
+            Self::Val(s) if !is_null => s.get(index).cloned(),
+            Self::Val(_) => None,
+        }
+    }
+}
+
+impl<'a, T> From<&'a [pg_sys::Datum]> for DataKind<'a, T> {
+    fn from(data: &'a [pg_sys::Datum]) -> DataKind<'a, T> {
+        DataKind::Ref(data)
+    }
+}
+
 // FIXME: When Array::over gets removed, this enum can probably be dropped
 // since we won't be entertaining ArrayTypes which don't use bitslices anymore.
 // However, we could also use a static resolution? Hard to say what's best.
