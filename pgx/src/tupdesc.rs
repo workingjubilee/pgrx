@@ -71,6 +71,21 @@ impl<'a> PgTupleDesc<'a> {
         }
     }
 
+    #[doc(hidden)]
+    pub fn cloned(&self) -> PgTupleDesc<'a> {
+        if let Some(rel) = self.parent {
+            PgTupleDesc::from_relation(rel)
+        } else {
+            PgTupleDesc {
+                tupdesc: self.tupdesc.as_ref().map(|ptr| unsafe {
+                    PgBox::from_pg(pg_sys::CreateTupleDescCopyConstr(ptr.as_ptr()))
+                }),
+            parent: None,
+            need_release: false,
+            need_pfree: true,
+        }}
+    }
+
     /// Wrap a Postgres-provided `pg_sys::TupleDescData`.  
     ///
     /// The wrapped TupleDesc will **not** have its reference count decremented  when this `PgTupleDesc`

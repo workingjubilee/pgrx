@@ -20,7 +20,7 @@ pub struct Array<'a, T: FromDatum> {
     _ptr: Option<NonNull<pg_sys::varlena>>,
     raw: Option<RawArray>,
     nelems: usize,
-    elem_slice: &'a [pg_sys::Datum],
+    elem_slice: DataKind<'a, T>,
     null_slice: NullKind<'a>,
     _marker: PhantomData<T>,
 }
@@ -31,12 +31,33 @@ enum DataKind<'a, T> {
 }
 
 impl<'a, T> DataKind<'a, T>
-where T: FromDatum + Clone {
+where
+    T: FromDatum + Clone,
+{
     fn get_datum(&self, index: usize, is_null: bool) -> Option<T> {
         match self {
             Self::Ref(d) => unsafe { T::from_datum(d[index], is_null) },
             Self::Val(s) if !is_null => s.get(index).cloned(),
             Self::Val(_) => None,
+        }
+    }
+}
+
+impl<'a, T> DataKind<'a, T> {
+    fn as_slice(&self) -> &[T] {
+        match self {
+            Self::Val(s) => s,
+            Self::Ref(datums) => {
+                let ptr = datums.as_ptr();
+                let sizeof_type = mem::size_of::<T>();
+                let sizeof_datums = mem::size_of_val(datums);
+                unsafe {
+                    slice::from_raw_parts(
+                        ptr.cast(),
+                        sizeof_datums / sizeof_type,
+                    )
+                }
+            }
         }
     }
 }
@@ -63,7 +84,7 @@ impl<'a> From<&'a [bool]> for NullKind<'a> {
 }
 
 impl NullKind<'_> {
-    fn get(&self, index: usize) -> Option<bool> {
+    fn check(&self, index: usize) -> Option<bool> {
         match self {
             Self::Bits(b1) => b1.get(index).map(|b| !b),
             Self::Bytes(b8) => b8.get(index).map(|b| *b),
@@ -72,7 +93,7 @@ impl NullKind<'_> {
     }
 }
 
-impl<'a, T: FromDatum + serde::Serialize> serde::Serialize for Array<'a, T> {
+impl<'a, T: FromDatum + Clone + serde::Serialize> serde::Serialize for Array<'a, T> {
     fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
     where
         S: Serializer,
@@ -81,7 +102,7 @@ impl<'a, T: FromDatum + serde::Serialize> serde::Serialize for Array<'a, T> {
     }
 }
 
-impl<'a, T: FromDatum + serde::Serialize> serde::Serialize for ArrayTypedIterator<'a, T> {
+impl<'a, T: FromDatum + Clone + serde::Serialize> serde::Serialize for ArrayTypedIterator<'a, T> {
     fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
     where
         S: Serializer,
@@ -127,7 +148,7 @@ impl<'a, T: FromDatum> Array<'a, T> {
             _ptr,
             raw,
             nelems,
-            elem_slice: unsafe { slice::from_raw_parts(elements, nelems) },
+            elem_slice: unsafe { slice::from_raw_parts(elements, nelems) }.into(),
             null_slice: unsafe { slice::from_raw_parts(nulls, nelems) }.into(),
             _marker: PhantomData,
         }
@@ -149,8 +170,8 @@ impl<'a, T: FromDatum> Array<'a, T> {
         let array = raw.into_ptr().as_ptr();
 
         // outvals for deconstruct_array
-        let mut elements = ptr::null_mut();
-        let mut nulls = ptr::null_mut();
+        let mut elements: *mut pg_sys::Datum = ptr::null_mut();
+        let mut nulls: *mut bool = ptr::null_mut();
         let mut nelems = 0;
 
         // FIXME: This way of getting array buffers causes problems for any Drop impl,
@@ -188,7 +209,52 @@ impl<'a, T: FromDatum> Array<'a, T> {
             _ptr,
             raw: Some(raw),
             nelems,
-            elem_slice: unsafe { slice::from_raw_parts(elements, nelems) },
+            elem_slice: unsafe { slice::from_raw_parts(elements, nelems) }.into(),
+            null_slice,
+            _marker: PhantomData,
+        }
+    }
+
+    unsafe fn direct_from(
+        _ptr: Option<NonNull<pg_sys::varlena>>,
+        mut raw: RawArray,
+        typlen: libc::c_int,
+        typalign: libc::c_char,
+    ) -> Array<'a, T> {
+        let oid = raw.oid();
+        let len = raw.len();
+        // Attempt to handle the array directly.
+        // First, assert on alignment
+        let eval_align = match typalign as u8 {
+            b'c' => 1,
+            b's' => mem::align_of::<libc::c_short>(),
+            b'i' => mem::align_of::<libc::c_int>(),
+            b'd' => mem::align_of::<f64>(),
+            _ => panic!("PGX encountered unfamiliar typalign?"),
+        };
+        let mem_align = mem::align_of::<T>();
+        assert_eq!(
+            eval_align,
+            mem_align,
+            "by-value align mismatch. Postgres said {ch},
+            type was Rust: {rs_ty}, OID#{oid}, Len: {typlen}",
+            ch = char::from(typalign as u8),
+            rs_ty = std::any::type_name::<T>()
+        );
+
+        let elems_raw = raw.data();
+        let nulls_raw = raw.nulls_bitslice();
+        let elem_slice = DataKind::Val(unsafe { &*elems_raw.as_ptr() });
+        let null_slice = match nulls_raw {
+            Some(raw) => NullKind::Bits(unsafe { &*raw.as_ptr() }),
+            None => NullKind::Strict(len),
+        };
+
+        Array {
+            _ptr,
+            raw: Some(raw),
+            nelems: len,
+            elem_slice,
             null_slice,
             _marker: PhantomData,
         }
@@ -201,14 +267,7 @@ impl<'a, T: FromDatum> Array<'a, T> {
     }
 
     pub fn as_slice(&self) -> &[T] {
-        let sizeof_type = mem::size_of::<T>();
-        let sizeof_datums = mem::size_of_val(self.elem_slice);
-        unsafe {
-            slice::from_raw_parts(
-                self.elem_slice.as_ptr() as *const T,
-                sizeof_datums / sizeof_type,
-            )
-        }
+        self.elem_slice.as_slice()
     }
 
     /// Return an Iterator of Option<T> over the contained Datums.
@@ -250,12 +309,13 @@ impl<'a, T: FromDatum> Array<'a, T> {
 
     #[allow(clippy::option_option)]
     #[inline]
-    pub fn get(&self, i: usize) -> Option<Option<T>> {
-        if i >= self.nelems {
-            None
-        } else {
-            Some(unsafe { T::from_datum(self.elem_slice[i], self.null_slice.get(i)?) })
-        }
+    pub fn get(&self, i: usize) -> Option<Option<T>>
+    where
+        T: Clone,
+    {
+        self.null_slice
+            .check(i)
+            .map(|b| self.elem_slice.get_datum(i, b))
     }
 }
 
@@ -264,7 +324,7 @@ pub struct ArrayTypedIterator<'a, T: 'a + FromDatum> {
     curr: usize,
 }
 
-impl<'a, T: FromDatum> Iterator for ArrayTypedIterator<'a, T> {
+impl<'a, T: FromDatum + Clone> Iterator for ArrayTypedIterator<'a, T> {
     type Item = T;
 
     #[inline]
@@ -288,7 +348,7 @@ pub struct ArrayIterator<'a, T: 'a + FromDatum> {
     curr: usize,
 }
 
-impl<'a, T: FromDatum> Iterator for ArrayIterator<'a, T> {
+impl<'a, T: FromDatum + Clone> Iterator for ArrayIterator<'a, T> {
     type Item = Option<T>;
 
     #[inline]
@@ -308,7 +368,7 @@ pub struct ArrayIntoIterator<'a, T: FromDatum> {
     curr: usize,
 }
 
-impl<'a, T: FromDatum> IntoIterator for Array<'a, T> {
+impl<'a, T: FromDatum + Clone> IntoIterator for Array<'a, T> {
     type Item = Option<T>;
     type IntoIter = ArrayIntoIterator<'a, T>;
 
@@ -320,7 +380,7 @@ impl<'a, T: FromDatum> IntoIterator for Array<'a, T> {
     }
 }
 
-impl<'a, T: FromDatum> Iterator for ArrayIntoIterator<'a, T> {
+impl<'a, T: FromDatum + Clone> Iterator for ArrayIntoIterator<'a, T> {
     type Item = Option<T>;
 
     #[inline]
@@ -371,14 +431,21 @@ impl<'a, T: FromDatum> FromDatum for Array<'a, T> {
             pg_sys::get_typlenbyvalalign(oid, &mut typlen, &mut typbyval, &mut typalign);
             let typlen = typlen as _;
 
-            Some(Array::deconstruct_from(
-                ptr, raw, typlen, typbyval, typalign,
-            ))
+            if typbyval {
+                Some(Array::direct_from(ptr, raw, typlen, typalign))
+            } else {
+                Some(Array::deconstruct_from(
+                    ptr, raw, typlen, typbyval, typalign,
+                ))
+            }
         }
     }
 }
 
-impl<T: FromDatum> FromDatum for Vec<T> {
+impl<T: FromDatum> FromDatum for Vec<T>
+where
+    T: Clone,
+{
     #[inline]
     unsafe fn from_datum(datum: pg_sys::Datum, is_null: bool) -> Option<Vec<T>> {
         if is_null {

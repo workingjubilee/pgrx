@@ -66,6 +66,16 @@ impl<'a> FromDatum for PgHeapTuple<'a, AllocatedByRust> {
     }
 }
 
+impl<'a> Clone for PgHeapTuple<'a, AllocatedByRust> {
+    fn clone(&self) -> Self {
+        let cloned = unsafe { pg_sys::heap_copytuple(self.tuple.as_ptr()) };
+        PgHeapTuple {
+            tuple: unsafe { PgBox::<pg_sys::HeapTupleData, AllocatedByRust>::from_rust(cloned) },
+            tupdesc: self.tupdesc.cloned(),
+        }
+    }
+}
+
 impl<'a> PgHeapTuple<'a, AllocatedByPostgres> {
     /// Creates a new [PgHeapTuple] from a [PgTupleDesc] and a [pg_sys::HeapTuple] pointer.  The
     /// returned [PgHeapTuple] will be considered by have been allocated by Postgres and is not mutable
