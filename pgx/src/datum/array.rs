@@ -183,6 +183,13 @@ impl<'a, T: FromDatum> Array<'a, T> {
         ptr.unwrap_or(ptr::null())
     }
 
+    // # Panics
+    //
+    // Panics if it detects the slightest misalignment between types
+    #[deprecated(
+        since = "0.5.0",
+        note = "it is almost impossible to offer this function, safely or unsafely"
+    )]
     pub fn as_slice(&self) -> &[T] {
         let sizeof_type = mem::size_of::<T>();
         let sizeof_datums = mem::size_of_val(self.elem_slice);
