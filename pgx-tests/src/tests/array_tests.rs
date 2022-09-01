@@ -112,7 +112,7 @@ fn get_arr_data_ptr_nth_elem(arr: Array<i32>, elem: i32) -> Option<i32> {
     // and it's valid-ish to see any bitpattern of an i32 inbounds of a slice.
     unsafe {
         let raw = RawArray::from_array(arr).unwrap().data::<i32>();
-        let slice = &(*raw.as_ptr());
+        let slice = &(*raw?.as_ptr());
         slice.get(elem as usize).copied()
     }
 }

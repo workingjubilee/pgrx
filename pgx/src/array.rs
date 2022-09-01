@@ -295,7 +295,7 @@ impl RawArray {
     [nonnull]: core::ptr::NonNull
     [ARR_DATA_PTR]: <https://git.postgresql.org/gitweb/?p=postgresql.git;a=blob;f=src/include/utils/array.h;h=4ae6c3be2f8b57afa38c19af2779f67c782e4efc;hb=278273ccbad27a8834dfdf11895da9cd91de4114#l315>
     */
-    pub fn data<T>(&mut self) -> NonNull<[T]> {
+    pub fn data<T>(&mut self) -> Option<NonNull<[T]>> {
         /*
         SAFETY: Welcome to the infernal bowels of FFI.
         Because the initial ptr was NonNull, we can assume this is also NonNull.
@@ -312,7 +312,7 @@ impl RawArray {
         needing only their initial assertion regarding the type being correct.
         */
         unsafe {
-            NonNull::new_unchecked(slice_from_raw_parts_mut(
+            NonNull::new(slice_from_raw_parts_mut(
                 pgx_ARR_DATA_PTR(self.ptr.as_ptr()).cast(),
                 self.len,
             ))

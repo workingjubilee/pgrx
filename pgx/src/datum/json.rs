@@ -30,7 +30,7 @@ impl FromDatum for Json {
         if is_null {
             None
         } else {
-            let varlena = pg_sys::pg_detoast_datum(datum.ptr_cast());
+            let varlena = pg_sys::pg_detoast_datum_packed(datum.ptr_cast());
             let len = varsize_any_exhdr(varlena);
             let data = vardata_any(varlena);
             let slice = std::slice::from_raw_parts(data as *const u8, len);

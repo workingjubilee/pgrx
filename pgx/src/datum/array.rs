@@ -47,17 +47,7 @@ impl<'a, T> DataKind<'a, T> {
     fn as_slice(&self) -> &[T] {
         match self {
             Self::Val(s) => s,
-            Self::Ref(datums) => {
-                let ptr = datums.as_ptr();
-                let sizeof_type = mem::size_of::<T>();
-                let sizeof_datums = mem::size_of_val(datums);
-                unsafe {
-                    slice::from_raw_parts(
-                        ptr.cast(),
-                        sizeof_datums / sizeof_type,
-                    )
-                }
-            }
+            Self::Ref(datums) => panic!("oh no")
         }
     }
 }
@@ -244,7 +234,7 @@ impl<'a, T: FromDatum> Array<'a, T> {
 
         let elems_raw = raw.data();
         let nulls_raw = raw.nulls_bitslice();
-        let elem_slice = DataKind::Val(unsafe { &*elems_raw.as_ptr() });
+        let elem_slice = DataKind::Val(unsafe { &*elems_raw.expect("surely this won't go wrong?").as_ptr() });
         let null_slice = match nulls_raw {
             Some(raw) => NullKind::Bits(unsafe { &*raw.as_ptr() }),
             None => NullKind::Strict(len),
@@ -431,7 +421,7 @@ impl<'a, T: FromDatum> FromDatum for Array<'a, T> {
             pg_sys::get_typlenbyvalalign(oid, &mut typlen, &mut typbyval, &mut typalign);
             let typlen = typlen as _;
 
-            if typbyval {
+            if typbyval && (mem::size_of::<T>() == typlen as usize) && if let 1 | 2 | 4 | 8 = typlen { true } else { false } {
                 Some(Array::direct_from(ptr, raw, typlen, typalign))
             } else {
                 Some(Array::deconstruct_from(
@@ -448,7 +438,7 @@ where
 {
     #[inline]
     unsafe fn from_datum(datum: pg_sys::Datum, is_null: bool) -> Option<Vec<T>> {
-        if is_null {
+        if is_null || datum.is_null() {
             None
         } else {
             let array = Array::<T>::from_datum(datum, is_null).unwrap();
