@@ -196,9 +196,7 @@ impl<'a, T: FromDatum> Array<'a, T> {
     unsafe fn deconstruct_from(
         _ptr: Option<NonNull<pg_sys::varlena>>,
         raw: RawArray,
-        typlen: i16,
-        typbyval: bool,
-        typalign: libc::c_char,
+        layout: Layout,
     ) -> Array<'a, T> {
         let oid = raw.oid();
         let len = raw.len();
@@ -225,9 +223,9 @@ impl<'a, T: FromDatum> Array<'a, T> {
             pg_sys::deconstruct_array(
                 array,
                 oid,
-                typlen as _,
-                typbyval,
-                typalign,
+                layout.size.as_typlen().into(),
+                layout.passbyval,
+                layout.align.as_typalign(),
                 &mut elements,
                 &mut nulls,
                 &mut nelems,
@@ -251,7 +249,7 @@ impl<'a, T: FromDatum> Array<'a, T> {
             nelems,
             elem_slice: /* SAFETY: &[Datum] from palloc'd [Datum] */ unsafe { slice::from_raw_parts(elements, nelems) },
             null_slice,
-            elem_layout: Some(Layout { align: Align::try_from(typalign).unwrap(), size: Size::try_from(typlen).unwrap(), passbyval: typbyval }),
+            elem_layout: Some(layout),
             _marker: PhantomData,
         }
     }
@@ -448,15 +446,18 @@ impl<'a, T: FromDatum> FromDatum for Array<'a, T> {
 
             // outvals for get_typlenbyvalalign()
             let mut typlen = 0;
-            let mut typbyval = false;
             let mut typalign = 0;
+            let mut passbyval = false;
             let oid = raw.oid();
 
-            pg_sys::get_typlenbyvalalign(oid, &mut typlen, &mut typbyval, &mut typalign);
+            pg_sys::get_typlenbyvalalign(oid, &mut typlen, &mut passbyval, &mut typalign);
+            let layout = Layout {
+                size: Size::try_from(typlen).unwrap(),
+                align: Align::try_from(typalign).unwrap(),
+                passbyval,
+            };
 
-            Some(Array::deconstruct_from(
-                ptr, raw, typlen, typbyval, typalign,
-            ))
+            Some(Array::deconstruct_from(ptr, raw, layout))
         }
     }
 }
