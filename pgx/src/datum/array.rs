@@ -22,6 +22,7 @@ pub struct Array<'a, T: FromDatum> {
     nelems: usize,
     elem_slice: &'a [pg_sys::Datum],
     null_slice: NullKind<'a>,
+    elem_layout: Option<TypeLayout>,
     _marker: PhantomData<T>,
 }
 
@@ -46,6 +47,34 @@ impl NullKind<'_> {
             Self::Bits(b1) => b1.get(index).map(|b| !b),
             Self::Bytes(b8) => b8.get(index).map(|b| *b),
             Self::Strict(len) => index.le(len).then(|| false),
+        }
+    }
+}
+
+struct TypeLayout {
+    align: Align,
+    size: i16,
+    passbyval: bool,
+}
+
+#[repr(usize)]
+enum Align {
+    Byte = mem::align_of::<u8>(),
+    Short = mem::align_of::<libc::c_short>(),
+    Int = mem::align_of::<libc::c_int>(),
+    Double = mem::align_of::<f64>(),
+}
+
+impl TryFrom<libc::c_char> for Align {
+    type Error = ();
+
+    fn try_from(cchar: libc::c_char) -> Result<Align, ()> {
+        match cchar as u8 {
+            b'c' => Ok(Align::Byte),
+            b's' => Ok(Align::Short),
+            b'i' => Ok(Align::Int),
+            b'd' => Ok(Align::Double),
+            _ => Err(()),
         }
     }
 }
@@ -107,6 +136,7 @@ impl<'a, T: FromDatum> Array<'a, T> {
             nelems,
             elem_slice: unsafe { slice::from_raw_parts(elements, nelems) },
             null_slice: unsafe { slice::from_raw_parts(nulls, nelems) }.into(),
+            elem_layout: None,
             _marker: PhantomData,
         }
     }
@@ -173,6 +203,7 @@ impl<'a, T: FromDatum> Array<'a, T> {
             nelems,
             elem_slice: /* SAFETY: &[Datum] from palloc'd [Datum] */ unsafe { slice::from_raw_parts(elements, nelems) },
             null_slice,
+            elem_layout: Some(TypeLayout { align: Align::try_from(typalign).unwrap(), size: typlen as _, passbyval: typbyval }),
             _marker: PhantomData,
         }
     }
