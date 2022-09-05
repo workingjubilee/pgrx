@@ -7,8 +7,7 @@ All rights reserved.
 Use of this source code is governed by the MIT license that can be found in the LICENSE file.
 */
 
-use crate::pg_sys::{TYPALIGN_CHAR, TYPALIGN_DOUBLE, TYPALIGN_INT, TYPALIGN_SHORT};
-use crate::{array::RawArray, pg_sys, FromDatum, IntoDatum, PgMemoryContexts};
+use crate::{array::RawArray, layout::*, pg_sys, FromDatum, IntoDatum, PgMemoryContexts};
 use bitvec::slice::BitSlice;
 use core::ptr::NonNull;
 use serde::Serializer;
@@ -48,86 +47,6 @@ impl NullKind<'_> {
             Self::Bits(b1) => b1.get(index).map(|b| !b),
             Self::Bytes(b8) => b8.get(index).map(|b| *b),
             Self::Strict(len) => index.le(len).then(|| false),
-        }
-    }
-}
-
-/// Postgres type information, corresponds to part of a row in pg_type
-/// This layout describes T, not &T, even if passbyval: false, which would mean the datum array is effectively &[&T]
-#[derive(Debug, Clone)]
-struct Layout {
-    align: Align,    // typalign
-    size: Size,      // typlen
-    passbyval: bool, // typbyval
-}
-
-#[repr(usize)]
-#[derive(Debug, Clone, PartialEq)]
-enum Align {
-    Byte = mem::align_of::<u8>(),
-    Short = mem::align_of::<libc::c_short>(),
-    Int = mem::align_of::<libc::c_int>(),
-    Double = mem::align_of::<f64>(),
-}
-
-impl TryFrom<libc::c_char> for Align {
-    type Error = ();
-
-    fn try_from(cchar: libc::c_char) -> Result<Align, ()> {
-        match cchar as u8 {
-            TYPALIGN_CHAR => Ok(Align::Byte),
-            TYPALIGN_SHORT => Ok(Align::Short),
-            TYPALIGN_INT => Ok(Align::Int),
-            TYPALIGN_DOUBLE => Ok(Align::Double),
-            _ => Err(()),
-        }
-    }
-}
-
-impl Align {
-    fn as_typalign(&self) -> libc::c_char {
-        (match self {
-            Align::Byte => TYPALIGN_CHAR,
-            Align::Short => TYPALIGN_SHORT,
-            Align::Int => TYPALIGN_INT,
-            Align::Double => TYPALIGN_DOUBLE,
-        }) as _
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-enum Size {
-    CStr,
-    Varlena,
-    Fixed(u16),
-}
-
-impl TryFrom<i16> for Size {
-    type Error = ();
-    fn try_from(int2: i16) -> Result<Size, ()> {
-        match int2 {
-            -2 => Ok(Size::CStr),
-            -1 => Ok(Size::Varlena),
-            v @ 0.. => Ok(Size::Fixed(v as u16)),
-            _ => Err(()),
-        }
-    }
-}
-
-impl Size {
-    fn as_typlen(&self) -> i16 {
-        match self {
-            Self::CStr => -2,
-            Self::Varlena => -1,
-            Self::Fixed(v) => *v as _,
-        }
-    }
-
-    fn try_as_usize(&self) -> Option<usize> {
-        match self {
-            Self::CStr => None,
-            Self::Varlena => None,
-            Self::Fixed(v) => Some(*v as _),
         }
     }
 }
@@ -449,19 +368,8 @@ impl<'a, T: FromDatum> FromDatum for Array<'a, T> {
             let raw =
                 RawArray::from_ptr(NonNull::new(array).expect("detoast returned null ArrayType*"));
             let ptr = NonNull::new(ptr);
-
-            // outvals for get_typlenbyvalalign()
-            let mut typlen = 0;
-            let mut typalign = 0;
-            let mut passbyval = false;
             let oid = raw.oid();
-
-            pg_sys::get_typlenbyvalalign(oid, &mut typlen, &mut passbyval, &mut typalign);
-            let layout = Layout {
-                size: Size::try_from(typlen).unwrap(),
-                align: Align::try_from(typalign).unwrap(),
-                passbyval,
-            };
+            let layout = Layout::lookup_oid(oid);
 
             Some(Array::deconstruct_from(ptr, raw, layout))
         }
