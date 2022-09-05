@@ -53,7 +53,7 @@ impl NullKind<'_> {
 
 struct Layout {
     align: Align,
-    size: i16,
+    size: Size,
     passbyval: bool,
 }
 
@@ -96,12 +96,32 @@ enum Size {
     Fixed(u16),
 }
 
+impl TryFrom<i16> for Size {
+    type Error = ();
+    fn try_from(int2: i16) -> Result<Size, ()> {
+        match int2 {
+            -2 => Ok(Size::CStr),
+            -1 => Ok(Size::Varlena),
+            v @ 0.. => Ok(Size::Fixed(v as u16)),
+            _ => Err(()),
+        }
+    }
+}
+
 impl Size {
     fn as_typlen(&self) -> i16 {
         match self {
             Self::CStr => -2,
             Self::Varlena => -1,
             Self::Fixed(v) => *v as _,
+        }
+    }
+
+    fn try_as_usize(&self) -> Option<usize> {
+        match self {
+            Self::CStr => None,
+            Self::Varlena => None,
+            Self::Fixed(v) => Some(*v as _),
         }
     }
 }
@@ -231,7 +251,7 @@ impl<'a, T: FromDatum> Array<'a, T> {
             nelems,
             elem_slice: /* SAFETY: &[Datum] from palloc'd [Datum] */ unsafe { slice::from_raw_parts(elements, nelems) },
             null_slice,
-            elem_layout: Some(Layout { align: Align::try_from(typalign).unwrap(), size: typlen, passbyval: typbyval }),
+            elem_layout: Some(Layout { align: Align::try_from(typalign).unwrap(), size: Size::try_from(typlen).unwrap(), passbyval: typbyval }),
             _marker: PhantomData,
         }
     }
@@ -252,7 +272,15 @@ impl<'a, T: FromDatum> Array<'a, T> {
         if you are sure your usage is sound, consider RawArray's functions"
     )]
     pub fn as_slice(&self) -> &[T] {
-        let sizeof_type = mem::size_of::<T>();
+        let sizeof_type = if let Some(Layout { size, .. }) = &self.elem_layout {
+            if mem::size_of::<T>() == size.try_as_usize().unwrap() {
+                mem::size_of::<T>()
+            } else {
+                panic!("mismatched sizes!")
+            }
+        } else {
+            panic!("not enough type information")
+        };
         let sizeof_datums = mem::size_of_val(self.elem_slice);
         unsafe {
             slice::from_raw_parts(
