@@ -22,7 +22,7 @@ pub struct Array<'a, T: FromDatum> {
     nelems: usize,
     elem_slice: &'a [pg_sys::Datum],
     null_slice: NullKind<'a>,
-    elem_layout: Option<TypeLayout>,
+    elem_layout: Option<Layout>,
     _marker: PhantomData<T>,
 }
 
@@ -51,7 +51,7 @@ impl NullKind<'_> {
     }
 }
 
-struct TypeLayout {
+struct Layout {
     align: Align,
     size: i16,
     passbyval: bool,
@@ -75,6 +75,33 @@ impl TryFrom<libc::c_char> for Align {
             b'i' => Ok(Align::Int),
             b'd' => Ok(Align::Double),
             _ => Err(()),
+        }
+    }
+}
+
+impl Align {
+    fn as_typalign(&self) -> libc::c_char {
+        (match self {
+            Align::Byte => b'c',
+            Align::Short => b's',
+            Align::Int => b'i',
+            Align::Double => b'd',
+        }) as _
+    }
+}
+
+enum Size {
+    CStr,
+    Varlena,
+    Fixed(u16),
+}
+
+impl Size {
+    fn as_typlen(&self) -> i16 {
+        match self {
+            Self::CStr => -2,
+            Self::Varlena => -1,
+            Self::Fixed(v) => *v as _,
         }
     }
 }
@@ -130,13 +157,14 @@ impl<'a, T: FromDatum> Array<'a, T> {
         // when you finally kill this off.
         let _ptr: Option<NonNull<pg_sys::varlena>> = None;
         let raw: Option<RawArray> = None;
+        let elem_layout: Option<Layout> = None;
         Array::<T> {
             _ptr,
             raw,
             nelems,
             elem_slice: unsafe { slice::from_raw_parts(elements, nelems) },
             null_slice: unsafe { slice::from_raw_parts(nulls, nelems) }.into(),
-            elem_layout: None,
+            elem_layout,
             _marker: PhantomData,
         }
     }
@@ -148,7 +176,7 @@ impl<'a, T: FromDatum> Array<'a, T> {
     unsafe fn deconstruct_from(
         _ptr: Option<NonNull<pg_sys::varlena>>,
         raw: RawArray,
-        typlen: libc::c_int,
+        typlen: i16,
         typbyval: bool,
         typalign: libc::c_char,
     ) -> Array<'a, T> {
@@ -177,7 +205,7 @@ impl<'a, T: FromDatum> Array<'a, T> {
             pg_sys::deconstruct_array(
                 array,
                 oid,
-                typlen,
+                typlen as _,
                 typbyval,
                 typalign,
                 &mut elements,
@@ -203,7 +231,7 @@ impl<'a, T: FromDatum> Array<'a, T> {
             nelems,
             elem_slice: /* SAFETY: &[Datum] from palloc'd [Datum] */ unsafe { slice::from_raw_parts(elements, nelems) },
             null_slice,
-            elem_layout: Some(TypeLayout { align: Align::try_from(typalign).unwrap(), size: typlen as _, passbyval: typbyval }),
+            elem_layout: Some(Layout { align: Align::try_from(typalign).unwrap(), size: typlen, passbyval: typbyval }),
             _marker: PhantomData,
         }
     }
@@ -392,7 +420,6 @@ impl<'a, T: FromDatum> FromDatum for Array<'a, T> {
             let oid = raw.oid();
 
             pg_sys::get_typlenbyvalalign(oid, &mut typlen, &mut typbyval, &mut typalign);
-            let typlen = typlen as _;
 
             Some(Array::deconstruct_from(
                 ptr, raw, typlen, typbyval, typalign,
