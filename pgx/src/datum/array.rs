@@ -51,13 +51,17 @@ impl NullKind<'_> {
     }
 }
 
+/// Postgres type information, corresponds to part of a row in pg_type
+/// This layout describes T, not &T, even if passbyval: false, which would mean the datum array is effectively &[&T]
+#[derive(Debug, Clone)]
 struct Layout {
-    align: Align,
-    size: Size,
-    passbyval: bool,
+    align: Align,    // typalign
+    size: Size,      // typlen
+    passbyval: bool, // typbyval
 }
 
 #[repr(usize)]
+#[derive(Debug, Clone, PartialEq)]
 enum Align {
     Byte = mem::align_of::<u8>(),
     Short = mem::align_of::<libc::c_short>(),
@@ -90,6 +94,7 @@ impl Align {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
 enum Size {
     CStr,
     Varlena,
