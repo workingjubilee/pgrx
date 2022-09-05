@@ -7,6 +7,7 @@ All rights reserved.
 Use of this source code is governed by the MIT license that can be found in the LICENSE file.
 */
 
+use crate::pg_sys::{TYPALIGN_CHAR, TYPALIGN_DOUBLE, TYPALIGN_INT, TYPALIGN_SHORT};
 use crate::{array::RawArray, pg_sys, FromDatum, IntoDatum, PgMemoryContexts};
 use bitvec::slice::BitSlice;
 use core::ptr::NonNull;
@@ -74,10 +75,10 @@ impl TryFrom<libc::c_char> for Align {
 
     fn try_from(cchar: libc::c_char) -> Result<Align, ()> {
         match cchar as u8 {
-            b'c' => Ok(Align::Byte),
-            b's' => Ok(Align::Short),
-            b'i' => Ok(Align::Int),
-            b'd' => Ok(Align::Double),
+            TYPALIGN_CHAR => Ok(Align::Byte),
+            TYPALIGN_SHORT => Ok(Align::Short),
+            TYPALIGN_INT => Ok(Align::Int),
+            TYPALIGN_DOUBLE => Ok(Align::Double),
             _ => Err(()),
         }
     }
@@ -86,10 +87,10 @@ impl TryFrom<libc::c_char> for Align {
 impl Align {
     fn as_typalign(&self) -> libc::c_char {
         (match self {
-            Align::Byte => b'c',
-            Align::Short => b's',
-            Align::Int => b'i',
-            Align::Double => b'd',
+            Align::Byte => TYPALIGN_CHAR,
+            Align::Short => TYPALIGN_SHORT,
+            Align::Int => TYPALIGN_INT,
+            Align::Double => TYPALIGN_DOUBLE,
         }) as _
     }
 }
