@@ -43,7 +43,8 @@
       - `NULL` Datums are safely represented as `Option::<T>::None`
 - **First-class UDF support**
    + Annotate functions with `#[pg_extern]` to expose them to Postgres
-   + Return `impl std::iter::Iterator<Item = T> where T: IntoDatum` for `RETURNS SETOF` and `RETURNS TABLE (...)`
+   + Return `pgx::iter::SetOfIterator<'a, T>` for `RETURNS SETOF`
+   + Return `pgx::iter::TableIterator<'a, T>` for `RETURNS TABLE (...)`
    + Create trigger functions with `#[pg_trigger]`
 - **Easy Custom Types**
    + `#[derive(PostgresType)]` to use a Rust struct as a Postgres type
@@ -241,7 +242,7 @@ and `From<time::Type> for pgx::MatchingType` by enabling the `"time-crate"` feat
 
 ### Experimental Features
 
-Adding `pgx = { version = "0.5.0-beta.0", features = ["postgrestd"] }` to your Cargo.toml
+Adding `pgx = { version = "0.5.0", features = ["postgrestd"] }` to your Cargo.toml
 will enable a **highly** experimental variant of `pgx` designed for integration with `postgrestd`,
 a modified Rust standard library that executes the Rust runtime atop the Postgres runtime,
 instead of using the operating system's ordinary C runtime.
@@ -256,6 +257,11 @@ even if you know what you are doing. Especially if you know exactly what you're 
 as that almost certainly means you are developing this feature,
 and further extending both runtimes in ways neither initially had imagined.
 If you absolutely must enable this feature, you may wish to discuss it first on [Discord].
+
+Adding `pgx = { version = "0.5.0", features = ["plrust"] }` to your Cargo.toml
+will enable an even more experimental variant of the above with special carve-outs
+specifically for usage with `PL/Rust`. This feature may not last long,
+as it is likely that code may move into a separate crate.
 
 As a reminder: "THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND..."
 
