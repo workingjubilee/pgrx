@@ -6,6 +6,7 @@ All rights reserved.
 
 Use of this source code is governed by the MIT license that can be found in the LICENSE file.
 */
+use once_cell::sync::Lazy;
 use std::panic::{self, AssertUnwindSafe, Location};
 use std::sync::{Mutex, PoisonError};
 use std::{any, io, mem, process};
@@ -78,7 +79,7 @@ impl Drop for PanicGuard {
     }
 }
 
-static SHUTDOWN_HOOKS: Mutex<Vec<ShutdownHook>> = Mutex::new(Vec::new());
+static SHUTDOWN_HOOKS: Lazy<Mutex<Vec<ShutdownHook>>> = Lazy::new(|| Mutex::new(Vec::new()));
 
 struct ShutdownHook {
     source: &'static Location<'static>,

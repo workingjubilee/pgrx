@@ -1,6 +1,6 @@
 use crate::prelude::*;
 use core::marker::PhantomData;
-use core::ptr::{self, NonNull};
+use core::ptr::NonNull;
 
 /// PallocSlice is between slice and Vec: PallocSlice does not assume the underlying T is valid for all indices
 /// and so does not implement the safe trait Index, but does let you call an `unsafe fn get` to do so,
@@ -9,23 +9,21 @@ use core::ptr::{self, NonNull};
 /// Note that while it's technically not lifetime-bound, it's still bound to the lifetime of the memory context.
 /// You should use this inside types that are themselves lifetime-bound to prevent inappropriate "escape".
 pub struct PallocSlice<T> {
-    pallocd: NonNull<[T]>,
+    pallocd: NonNull<T>,
+    len: usize, // Separately handle pointer and len to avoid using NonNull::len()
     _phantom: PhantomData<Box<[T]>>,
 }
 
 impl<T> PallocSlice<T> {
     pub unsafe fn from_raw_parts(ptr: NonNull<T>, len: usize) -> Self {
-        PallocSlice {
-            pallocd: NonNull::new_unchecked(ptr::slice_from_raw_parts_mut(ptr.as_ptr(), len)),
-            _phantom: PhantomData,
-        }
+        PallocSlice { pallocd: ptr, len, _phantom: PhantomData }
     }
 
     /// # Safety
     /// You must know the underlying type at that index is validly initialized in Rust.
     #[inline]
     pub unsafe fn get(&self, index: usize) -> Option<&T> {
-        index.le(&self.pallocd.len()).then(|| self.get_unchecked(index))
+        index.le(&self.len).then(|| self.get_unchecked(index))
     }
 
     /// # Safety
@@ -33,7 +31,7 @@ impl<T> PallocSlice<T> {
     /// AND that the index is inbounds.
     #[inline]
     pub unsafe fn get_unchecked(&self, index: usize) -> &T {
-        self.pallocd.as_ptr().cast::<T>().add(index).as_ref().unwrap_unchecked()
+        self.pallocd.as_ptr().add(index).as_ref().unwrap_unchecked()
     }
 }
 
