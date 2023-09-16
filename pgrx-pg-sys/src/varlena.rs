@@ -18,9 +18,10 @@ struct AnyT<const _1or4: usize> {
 
 Some varlena types guarantee vl_len is 4 bytes and aligned, calling it an i32
 However, it is nonetheless inadvisable to simply poke at the raw integer,
-as `vl_len` has a special encoding for length payload that can vary.
+as `vl_len` has a special encoding for the length that can vary (see Toast).
 Even if a pointer arrives over Postgres FFI using one of these aligned types,
-it is wise to be cautious about this.
+it is wise to be cautious about this, as pointers may be null and unaligned.
+Postgres usually offers some alignment, but this complicates that.
 */
 
 /**
@@ -28,3 +29,50 @@ Designates something as a Postgres "variable length array" type
 */
 // This probably shouldn't be sealed, as many varlenas are user types.
 pub unsafe trait VarLen {}
+
+/**
+"The Oversized-Attribute Storage Technique".
+
+The C in the C Programming Language apparently stands for Corny.
+
+*/
+pub unsafe trait Toast {
+    type De;
+
+    fn detoast(&self) -> Self::De {
+        todo!()
+    }
+}
+
+
+enum ToastBits {
+    None = 0b00s,
+    Byte = 0b1,
+    Compressed = 0b10,
+}
+
+impl ToastBits {
+    fn vlen_bytes(self) -> u8 {
+        match self {
+            None => 4,
+            Byte => 1,
+            Compressed => 4,
+        }
+    }
+}
+
+fn read_varlena_word() -> u32 {
+    todo!()
+}
+
+struct VarBytes {
+    p: *mut u8,
+    len: u32,
+}
+
+enum Toasting {
+    OutOfLine(Encoding),
+    Byte(u8),
+    Compressed(u32),
+    Direct(u32),
+}
