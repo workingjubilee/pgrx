@@ -356,6 +356,7 @@ fn rewrite_items(
     let items_vec = rewrite_oid_consts(&file.items, oids);
     let mut items = apply_pg_guard(&items_vec)?;
     let pgnode_impls = impl_pg_node(&items_vec)?;
+    let varlena_impls = impl_varlena(&items_vec)?;
 
     // append the pgnodes to the set of items
     items.extend(pgnode_impls);
@@ -541,6 +542,25 @@ fn dfs_find_nodes<'graph>(
         }
         dfs_find_nodes(child, graph, node_set);
     }
+}
+
+/// Implement our `VarLen` trait for `pg_sys::varlena` and its "subclasses"
+fn impl_varlena(
+    items: &Vec<syn::Item>,
+) -> eyre::Result<proc_macro2::TokenStream> {
+    let varlena_impls = proc_macro2::TokenStream::new();
+    let varlena_types: Vec<StructDescriptor> = todo!();
+
+    for varlena_t in varlena_types {
+        let t_name = &varlena_t.struct_.ident;
+
+        // impl the VarLen trait for all varlenas
+        varlena_impls.extend(quote! {
+            impl pg_sys::VarLen for #t_name {}
+        });
+    }
+
+    Ok(varlena_impls)
 }
 
 /// A graph describing the inheritance relationships between different nodes
