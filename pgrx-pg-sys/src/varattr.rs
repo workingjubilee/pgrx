@@ -46,7 +46,7 @@ pub unsafe trait Toast {
 
 
 enum ToastBits {
-    None = 0b00s,
+    Direct = 0b00,
     Byte = 0b1,
     Compressed = 0b10,
 }
@@ -54,14 +54,16 @@ enum ToastBits {
 impl ToastBits {
     fn vlen_bytes(self) -> u8 {
         match self {
-            None => 4,
-            Byte => 1,
-            Compressed => 4,
+            ToastBits::Direct => 4,
+            ToastBits::Byte => 1,
+            ToastBits::Compressed => 4,
         }
     }
 }
 
-fn read_varlena_word() -> u32 {
+type vsize = u32;
+
+fn read_varlena_word() -> vsize {
     todo!()
 }
 
@@ -70,6 +72,7 @@ struct VarBytes {
     len: u32,
 }
 
+type Encoding = ();
 enum Toasting {
     OutOfLine(Encoding),
     Byte(u8),

@@ -356,7 +356,7 @@ fn rewrite_items(
     let items_vec = rewrite_oid_consts(&file.items, oids);
     let mut items = apply_pg_guard(&items_vec)?;
     let pgnode_impls = impl_pg_node(&items_vec)?;
-    let varlena_impls = impl_varlena(&items_vec)?;
+    // let varlena_impls = impl_varlena(&items_vec)?;
 
     // append the pgnodes to the set of items
     items.extend(pgnode_impls);

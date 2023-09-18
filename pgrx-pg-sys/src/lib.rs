@@ -41,7 +41,7 @@ pub use include::*;
 pub use node::PgNode;
 pub use port::*;
 pub use submodules::*;
-pub mod varlena;
+pub mod varattr;
 
 mod seal {
     pub trait Sealed {}
