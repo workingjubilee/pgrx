@@ -52,11 +52,37 @@ enum ToastBits {
 }
 
 impl ToastBits {
-    fn vlen_bytes(self) -> u8 {
+    const fn vlen_bytes(self) -> u8 {
         match self {
             ToastBits::Direct => 4,
             ToastBits::Byte => 1,
             ToastBits::Compressed => 4,
+        }
+    }
+}
+
+mod vlahead_experiment {
+    use super::*;
+    // this is possible, using dynamic traits, but probably isn't an improvement in terms of codegen
+    // compared to simply doing the check each time?
+    struct VlaHead<const N: usize>([u8; N]);
+
+    trait VlaHeader {}
+
+    impl VlaHeader for VlaHead<1> {
+
+    }
+
+    impl VlaHeader for VlaHead<4> {
+
+    }
+
+
+    fn array_from_toast_bits<const N: usize>(bits: ToastBits) -> Box<dyn VlaHeader> {
+        match bits.vlen_bytes() {
+            1 => Box::new(VlaHead([0; 1])),
+            4 => Box::new(VlaHead([0; 4])),
+            _ => panic!(),
         }
     }
 }
