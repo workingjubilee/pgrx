@@ -110,6 +110,7 @@ impl VlaBytes {
 }
 
 #[repr(u8)]
+#[derive(Clone, Copy)]
 enum External {
     Memory = 1,
     Expanded = 2,
@@ -117,15 +118,26 @@ enum External {
     OnDisk = 18,
 }
 
+/// Representation of toast bits
 #[repr(C, u8)]
+#[derive(Clone, Copy)]
 enum Toasting {
-    Direct = 0x0,
-    #[cfg(target_endian = "little")]
-    Ptr(External) = 0x01,
-    #[cfg(target_endian = "big")]
-    Ptr(External) = 0x80,
-    Compressed = 0x03,
+    Direct,
     Short,
+    Compressed,
+    Ptr(External),
+}
+
+impl Toasting {
+    fn as_bitmask(self) -> u8 {
+        let fix_endian =
+            if cfg!(target_endian = "big") { u8::reverse_bits } else { core::convert::identity };
+        fix_endian(match self {
+            Toasting::Direct => 0b00,
+            Toasting::Ptr(_) | Toasting::Short => 0b01,
+            Toasting::Compressed => 0b10,
+        })
+    }
 }
 
 #[repr(C)]
