@@ -4,15 +4,13 @@ A definition of variable-length arrays
 A varlena type looks kinda like this:
 ```rust
 #[repr(C)]
-struct Varlena<T> {
-    header: T,
-    vl_data: MaybeUninit<[u8]>, // implies !Sized
-}
-
-#[repr(C)]
-struct AnyT<const _1or4: usize> {
-    vl_len: [u8; _1or4],
-    maybe_fields: Types,
+struct Varlena<T, const B: usize>
+where
+    B: 1 | 2 | 4,
+{
+    vl_len: [u8; B],
+    header: T::Header,
+    vl_data: [MaybeUninit<u8>], // so, !Sized
 }
 ```
 
@@ -23,6 +21,8 @@ Even if a pointer arrives over Postgres FFI using one of these aligned types,
 it is wise to be cautious about this, as pointers may be null and unaligned.
 Postgres usually offers some alignment, but this complicates that.
 */
+
+use core::mem::MaybeUninit;
 
 /**
 Designates something as a Postgres "variable length array" type
@@ -43,7 +43,6 @@ pub unsafe trait Toast {
         todo!()
     }
 }
-
 
 enum ToastBits {
     Direct = 0b00,
@@ -69,14 +68,9 @@ mod vlahead_experiment {
 
     trait VlaHeader {}
 
-    impl VlaHeader for VlaHead<1> {
+    impl VlaHeader for VlaHead<1> {}
 
-    }
-
-    impl VlaHeader for VlaHead<4> {
-
-    }
-
+    impl VlaHeader for VlaHead<4> {}
 
     fn array_from_toast_bits<const N: usize>(bits: ToastBits) -> Box<dyn VlaHeader> {
         match bits.vlen_bytes() {
@@ -93,15 +87,69 @@ fn read_varlena_word() -> vsize {
     todo!()
 }
 
-struct VarBytes {
+/**
+A varlena pointer plus metadata.
+
+This offers an unwrapped version of the information needed to handle a varlena pointer,
+and is the type that should be produced by first unwrapping any varlena.
+*/
+struct VlaBytes {
     p: *mut u8,
-    len: u32,
+    b_len: vsize,
+    kind: Toasting,
 }
 
-type Encoding = ();
+impl VlaBytes {
+    pub fn as_uninit_bytes(&self) -> &[MaybeUninit<u8>] {
+        unsafe { core::slice::from_raw_parts(self.p.cast(), self.b_len as _) }
+    }
+
+    pub fn as_mut_uninit_bytes(&self) -> &mut [MaybeUninit<u8>] {
+        unsafe { core::slice::from_raw_parts_mut(self.p.cast(), self.b_len as _) }
+    }
+}
+
+#[repr(u8)]
+enum External {
+    Memory = 1,
+    Expanded = 2,
+    ExpandedMut = 3,
+    OnDisk = 18,
+}
+
+#[repr(C, u8)]
 enum Toasting {
-    OutOfLine(Encoding),
-    Byte(u8),
-    Compressed(u32),
-    Direct(u32),
+    Direct = 0x0,
+    #[cfg(target_endian = "little")]
+    Ptr(External) = 0x01,
+    #[cfg(target_endian = "big")]
+    Ptr(External) = 0x80,
+    Compressed = 0x03,
+    Short,
+}
+
+#[repr(C)]
+union VlaHBytes {
+    short: u8,
+    tagged: [u8; 2],
+    full: [u8; 4],
+}
+
+#[repr(C)]
+struct ShortVarlena {
+    len: u8,
+    bytes: [MaybeUninit<u8>],
+}
+
+#[repr(C)]
+struct B1_3 {
+    vl_len: u8,
+    bytes: MaybeUninit<[u8; 3]>,
+}
+
+#[repr(C)]
+struct B1_Tag_2 {
+    byte: u8,
+    tag: u8,
+    bytes: MaybeUninit<[u8; 2]>,
 }
