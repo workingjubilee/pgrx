@@ -23,6 +23,8 @@ Postgres usually offers some alignment, but this complicates that.
 */
 
 use core::mem::MaybeUninit;
+use core::ops::{Deref, DerefMut};
+use core::ptr::NonNull;
 
 /**
 Designates something as a Postgres "variable length array" type
@@ -112,6 +114,7 @@ impl VlaBytes {
 #[repr(u8)]
 #[derive(Clone, Copy)]
 enum External {
+    // vartag_external
     Memory = 1,
     Expanded = 2,
     ExpandedMut = 3,
@@ -128,11 +131,56 @@ enum Toasting {
     Ptr(External),
 }
 
+enum VarlenaKind {
+    Short(NonNull<ShortVarlena>),
+    Compressed(NonNull<VarlenaBytes>),
+    Full(NonNull<VarlenaBytes>),
+    OutOfLine(ToastPtrKind),
+}
+
+enum ToastPtrKind {
+    External(),
+}
+
+#[repr(C)]
+struct ToastPtr<T> {
+    vl_len_: u8,
+    vl_tag_: vartag_external,
+    data: Unaligned<T>,
+}
+
+impl<T> Deref for ToastPtr<T> {
+    type Target = Unaligned<T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
+}
+
+impl<T> DerefMut for ToastPtr<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.data
+    }
+}
+
+struct vartag_external(u8);
+
+struct VarlenaBytes {}
+
+struct ExternalToast(Unaligned<crate::varatt_external>);
+struct IndirectToast(Unaligned<crate::varatt_indirect>);
+struct ExpandedToast(Unaligned<crate::varatt_expanded>);
+struct ExpandedToastMut(Unaligned<crate::varatt_expanded>);
+
+#[repr(C, packed)]
+struct Unaligned<T>(T);
+// use unaligned::Unaligned;
+
 impl Toasting {
     fn as_bitmask(self) -> u8 {
-        let fix_endian =
+        let endian =
             if cfg!(target_endian = "big") { u8::reverse_bits } else { core::convert::identity };
-        fix_endian(match self {
+        endian(match self {
             Toasting::Direct => 0b00,
             Toasting::Ptr(_) | Toasting::Short => 0b01,
             Toasting::Compressed => 0b10,
