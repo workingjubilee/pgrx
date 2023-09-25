@@ -111,10 +111,13 @@ impl VlaBytes {
     }
 }
 
-#[repr(u8)]
+// #[derive(Clone, Copy)]
+// struct vartag_external(u8);
+// this is actually a byte tag, we ne
+
 #[derive(Clone, Copy)]
-enum External {
-    // vartag_external
+#[repr(u8)]
+enum VarTagExternal {
     Memory = 1,
     Expanded = 2,
     ExpandedMut = 3,
@@ -122,13 +125,12 @@ enum External {
 }
 
 /// Representation of toast bits
-#[repr(C, u8)]
+#[repr(u8)]
 #[derive(Clone, Copy)]
 enum Toasting {
-    Direct,
-    Short,
-    Compressed,
-    Ptr(External),
+    Direct = 0b00,
+    Short = 0b1,
+    Compressed = 0b10,
 }
 
 enum VarlenaKind {
@@ -142,12 +144,19 @@ enum ToastPtrKind {
     External(),
 }
 
+/// "Toast pointers" represent any toast indirection
+///
+/// They can be actual pointers, or represent a value in a table.
 #[repr(C)]
 struct ToastPtr<T> {
     vl_len_: u8,
-    vl_tag_: vartag_external,
+    vl_tag_: VarTagExternal,
     data: Unaligned<T>,
 }
+
+trait HasVhdr {}
+
+impl<T> HasVhdr for ToastPtr<T> {}
 
 impl<T> Deref for ToastPtr<T> {
     type Target = Unaligned<T>;
@@ -182,7 +191,7 @@ impl Toasting {
             if cfg!(target_endian = "big") { u8::reverse_bits } else { core::convert::identity };
         endian(match self {
             Toasting::Direct => 0b00,
-            Toasting::Ptr(_) | Toasting::Short => 0b01,
+            Toasting::Short => 0b01,
             Toasting::Compressed => 0b10,
         })
     }
