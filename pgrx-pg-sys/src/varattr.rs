@@ -141,7 +141,10 @@ enum VarlenaKind {
 }
 
 enum ToastPtrKind {
-    External(),
+    Table(ToastPtr<crate::varatt_external>),
+    Memory(Unaligned<crate::varatt_indirect>),
+    Expanded(ToastPtr<crate::varatt_expanded>),
+    ExpandedMut(ToastPtr<crate::varatt_expanded>),
 }
 
 /// "Toast pointers" represent any toast indirection
@@ -182,7 +185,7 @@ struct ExpandedToast(Unaligned<crate::varatt_expanded>);
 struct ExpandedToastMut(Unaligned<crate::varatt_expanded>);
 
 #[repr(C, packed)]
-struct Unaligned<T>(T);
+pub struct Unaligned<T>(T);
 // use unaligned::Unaligned;
 
 impl Toasting {

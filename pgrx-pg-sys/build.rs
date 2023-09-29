@@ -545,9 +545,7 @@ fn dfs_find_nodes<'graph>(
 }
 
 /// Implement our `VarLen` trait for `pg_sys::varlena` and its "subclasses"
-fn impl_varlena(
-    items: &Vec<syn::Item>,
-) -> eyre::Result<proc_macro2::TokenStream> {
+fn impl_varlena(items: &Vec<syn::Item>) -> eyre::Result<proc_macro2::TokenStream> {
     let varlena_impls = proc_macro2::TokenStream::new();
     let varlena_types: Vec<StructDescriptor> = todo!();
 
