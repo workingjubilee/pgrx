@@ -62,3 +62,8 @@ opt-level = 3
 
 [workspace.metadata.local-install]
 cargo-pgrx = { path = "cargo-pgrx" }
+
+[patch.crates-io]
+sct = { git = "https://github.com/rustls/sct.rs" }
+rustls = { git = "https://github.com/cpu/rustls", branch = "cpu-0.21.8-prep" }
+rustls-webpki = { git = "https://github.com/cpu/webpki", branch = "cpu-0.101.7-prep" }
