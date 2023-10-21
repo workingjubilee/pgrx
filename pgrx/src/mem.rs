@@ -1,6 +1,8 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 use crate::pg_sys;
-use core::{marker::PhantomData, ptr::NonNull};
+use core::mem::MaybeUninit;
+use core::marker::PhantomData;
+use core::ptr::{self, NonNull};
 
 /// A borrowed memory context.
 pub struct MemCx<'mcx> {
@@ -15,7 +17,7 @@ impl<'mcx> MemCx<'mcx> {
     ///
     /// Dereferences the pointer and generates a memory context with the inferred lifetime.
     /// This should be made public only after we have other safe interfaces published first,
-    /// as it is both easy and also pretty incorrect.
+    /// as it is both easy and also pretty incorrect in most use-cases.
     pub(crate) unsafe fn from_ptr(ptr: pg_sys::MemoryContext) -> Option<MemCx<'mcx>> {
         unsafe {
             pg_sys::MemoryContextIsValid(ptr)
@@ -24,9 +26,13 @@ impl<'mcx> MemCx<'mcx> {
     }
 
     /// Forwards to [pg_sys::MemoryContextAlloc].
-    pub(crate) unsafe fn alloc_bytes(&self, size: usize) -> *mut u8 {
-        // SAFETY: We have no real safety invariants to uphold, aside from those that pgrx enforces.
-        unsafe { pg_sys::MemoryContextAlloc(self.ptr.as_ptr(), size).cast() }
+    pub(crate) unsafe fn alloc_bytes(&self, size: usize) -> Palloc<'mcx, [MaybeUninit<u8>]> {
+        // SAFETY: This is mostly a convenience to return a lifetime-infected pointer.
+        unsafe {
+            let ptr = pg_sys::MemoryContextAlloc(self.ptr.as_ptr(), size).cast();
+            let ptr = ptr::slice_from_raw_parts_mut(ptr, size);
+            Palloc::from_raw(ptr, self)
+        }
     }
 
     /// Run some code inside this context, switching to it and then switching back.
@@ -40,6 +46,20 @@ impl<'mcx> MemCx<'mcx> {
             pg_sys::MemoryContextSwitchTo(remembered);
         }
         res
+    }
+}
+
+/// An owned allocation in a memory context.
+pub(crate) struct Palloc<'mcx, T: ?Sized> {
+    // this isn't compatible with ?Sized, I think there needs to be a separation of types here
+    ptr: MaybeUninit<T>,
+    mcx: PhantomData<&'mcx MemCx<'mcx>>,
+}
+
+impl<T: ?Sized> Palloc<'_, T> {
+    // Correctly infects a pointer with the memory context's lifetime.
+    unsafe fn from_raw<'mcx>(ptr: *mut T, mcx: &MemCx<'mcx>) -> Palloc<'mcx, T> {
+        Palloc { ptr, mcx: PhantomData }
     }
 }
 
