@@ -1,7 +1,7 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 use crate::pg_sys;
-use core::mem::MaybeUninit;
 use core::marker::PhantomData;
+use core::mem::MaybeUninit;
 use core::ptr::{self, NonNull};
 
 /// A borrowed memory context.
@@ -26,7 +26,10 @@ impl<'mcx> MemCx<'mcx> {
     }
 
     /// Forwards to [pg_sys::MemoryContextAlloc].
-    pub(crate) unsafe fn alloc_bytes(&self, size: usize) -> Palloc<'mcx, &'mcx mut [MaybeUninit<u8>]> {
+    pub(crate) unsafe fn alloc_bytes(
+        &self,
+        size: usize,
+    ) -> Palloc<'mcx, &'mcx mut [MaybeUninit<u8>]> {
         // SAFETY: This is mostly a convenience to return a lifetime-infected pointer.
         unsafe {
             let ptr = pg_sys::MemoryContextAlloc(self.ptr.as_ptr(), size).cast();

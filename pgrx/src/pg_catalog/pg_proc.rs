@@ -215,7 +215,8 @@ impl PgProc {
 
     /// Function's local settings for run-time configuration variables
     pub fn proconfig(&self) -> Option<Vec<String>> {
-        self.get_attr(pg_sys::Anum_pg_proc_proconfig)
+        todo!()
+        // self.get_attr(pg_sys::Anum_pg_proc_proconfig)
     }
 
     /// ```text
@@ -228,11 +229,12 @@ impl PgProc {
     /// In our case, if all the arguments are `IN` arguments, the returned Vec will have the
     /// corresponding `ProArgModes::In` value in each element.
     pub fn proargmodes(&self) -> Vec<ProArgMode> {
-        self.get_attr::<Vec<i8>>(pg_sys::Anum_pg_proc_proargmodes)
-            .unwrap_or_else(|| vec!['i' as i8; self.proargnames().len()])
-            .into_iter()
-            .map(|mode| ProArgMode::from(mode))
-            .collect::<Vec<_>>()
+        todo!()
+        // self.get_attr::<Vec<i8>>(pg_sys::Anum_pg_proc_proargmodes)
+        //     .unwrap_or_else(|| vec!['i' as i8; self.proargnames().len()])
+        //     .into_iter()
+        //     .map(|mode| ProArgMode::from(mode))
+        //     .collect::<Vec<_>>()
     }
 
     /// Number of input arguments
@@ -251,15 +253,17 @@ impl PgProc {
     /// strings in the array. If none of the arguments have a name, this field will be null. Note
     /// that subscripts correspond to positions of proallargtypes not proargtypes.
     pub fn proargnames(&self) -> Vec<Option<String>> {
-        self.get_attr::<Vec<Option<String>>>(pg_sys::Anum_pg_proc_proargnames)
-            .unwrap_or_else(|| vec![None; self.pronargs()])
+        todo!()
+        // self.get_attr::<Vec<Option<String>>>(pg_sys::Anum_pg_proc_proargnames)
+        //     .unwrap_or_else(|| vec![None; self.pronargs()])
     }
 
     /// An array of the data types of the function arguments. This includes only input arguments
     /// (including INOUT and VARIADIC arguments), and thus represents the call signature of the
     /// function.
     pub fn proargtypes(&self) -> Vec<pg_sys::Oid> {
-        self.get_attr(pg_sys::Anum_pg_proc_proargtypes).unwrap_or_default()
+        todo!()
+        // self.get_attr(pg_sys::Anum_pg_proc_proargtypes).unwrap_or_default()
     }
 
     /// An array of the data types of the function arguments. This includes all arguments (including
@@ -267,7 +271,8 @@ impl PgProc {
     /// null. Note that subscripting is 1-based, whereas for historical reasons proargtypes is
     /// subscripted from 0.
     pub fn proallargtypes(&self) -> Vec<pg_sys::Oid> {
-        self.get_attr(pg_sys::Anum_pg_proc_proallargtypes).unwrap_or_else(|| self.proargtypes())
+        todo!()
+        // self.get_attr(pg_sys::Anum_pg_proc_proallargtypes).unwrap_or_else(|| self.proargtypes())
     }
 
     /// Data type of the return value

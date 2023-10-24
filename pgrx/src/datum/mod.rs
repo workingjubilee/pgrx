@@ -516,3 +516,84 @@ impl<T: Copy + 'static> WithVarlenaTypeIds<T> {
         }
     }
 }
+use core::ffi::c_void;
+use core::marker::PhantomData;
+use core::num::TryFromIntError;
+use core::ptr;
+use core::str::{self, Utf8Error};
+
+pub unsafe trait BorrowDatum {
+    type As<'dat>
+    where
+        Self: 'dat;
+    unsafe fn borrow<'dat>(datum: Datum<'dat>) -> Self::As<'dat>;
+}
+
+#[repr(transparent)]
+pub struct Datum<'dat>(pgrx_pg_sys::Datum, PhantomData<&'dat c_void>);
+
+impl<'dat> Datum<'dat> {
+    pub(crate) unsafe fn promote(datum: pgrx_pg_sys::Datum) -> Datum<'dat> {
+        Datum(datum, PhantomData)
+    }
+    pub unsafe fn borrow_as<T: BorrowDatum>(self) -> T::As<'dat> {
+        unsafe { T::borrow(self) }
+    }
+}
+
+unsafe impl BorrowDatum for str {
+    type As<'dat> = &'dat str;
+    unsafe fn borrow<'dat>(d: Datum<'dat>) -> Self::As<'dat> {
+        let varlena_ptr = d.0.cast_mut_ptr::<u8>();
+        unsafe {
+            let varlena_len = *varlena_ptr;
+            let byte_slice =
+                ptr::slice_from_raw_parts(varlena_ptr, varlena_len.saturating_sub(1) as usize);
+            str::from_utf8_unchecked(&*byte_slice)
+        }
+    }
+}
+
+unsafe impl BorrowDatum for i64 {
+    type As<'dat> = i64;
+    unsafe fn borrow<'dat>(d: Datum<'dat>) -> Self::As<'dat> {
+        let data = d.0.value();
+        data as i64
+    }
+}
+
+pub trait TryDatum {
+    type Error;
+}
+
+pub enum VarlenaStrErr {
+    /// actually a null pointer
+    NullPtr,
+    /// checked for UTF-8 and found wanting
+    NotUtf8,
+    /// the varlena was not UTF-8
+    TooSmall,
+}
+
+pub enum DatumKind<T: TryDatum> {
+    Is(T),
+    WrongOid,
+    Null,
+    TypeErr(<T as TryDatum>::Error),
+}
+
+unsafe impl BorrowDatum for i32 {
+    type As<'dat> = Result<i32, TryFromIntError>;
+    unsafe fn borrow<'dat>(d: Datum<'dat>) -> Self::As<'dat> {
+        let datum = d.0.value();
+        i32::try_from(datum)
+    }
+}
+
+struct ArenaLt<'arena>(PhantomData<&'arena Arena<'arena>>);
+
+struct Memory {
+    data: Vec<u8>,
+}
+
+struct Arena<'arena>(PhantomData<&'arena Memory>);

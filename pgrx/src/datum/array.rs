@@ -11,6 +11,7 @@ use crate::array::RawArray;
 use crate::datum::array::casper::ChaChaSlide;
 use crate::layout::*;
 use crate::toast::Toast;
+use crate::BorrowDatum;
 use crate::{pg_sys, FromDatum, IntoDatum, PgMemoryContexts};
 use bitvec::slice::BitSlice;
 use core::fmt::{Debug, Formatter};
@@ -55,14 +56,15 @@ fn with_vec(elems: Array<String>) {
 }
 ```
 */
-pub struct Array<'a, T: FromDatum> {
+pub struct Array<'a, T> 
+where T: ?Sized, {
     null_slice: NullKind<'a>,
     slide_impl: ChaChaSlideImpl<T>,
     // Rust drops in FIFO order, drop this last
     raw: Toast<RawArray>,
 }
 
-impl<'a, T: FromDatum + Debug> Debug for Array<'a, T> {
+impl<'a, T: Debug> Debug for Array<'a, T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         f.debug_list().entries(self.iter()).finish()
     }
@@ -95,22 +97,25 @@ impl NullKind<'_> {
     }
 }
 
-impl<'a, T: FromDatum + serde::Serialize + 'a> serde::Serialize for Array<'a, T> {
-    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
-    where
-        S: Serializer,
-    {
-        serializer.collect_seq(self.iter())
-    }
-}
+// impl<'a, T: FromDatum + serde::Serialize + 'a> serde::Serialize for Array<'a, T> {
+//     fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
+//     where
+//         S: Serializer,
+//     {
+//         serializer.collect_seq(self.iter())
+//     }
+// }
 
 #[deny(unsafe_op_in_unsafe_fn)]
-impl<'a, T: FromDatum> Array<'a, T> {
+impl<'a, T> Array<'a, T> {
     /// # Safety
     ///
     /// This function requires that the RawArray was obtained in a properly-constructed form
     /// (probably from Postgres).
-    unsafe fn deconstruct_from(mut raw: Toast<RawArray>) -> Array<'a, T> {
+    unsafe fn deconstruct_from(mut raw: Toast<RawArray>) -> Array<'a, T>
+    where
+        T: BorrowDatum,
+    {
         let oid = raw.oid();
         let elem_layout = Layout::lookup_oid(oid);
         let nelems = raw.len();
@@ -209,7 +214,10 @@ impl<'a, T: FromDatum> Array<'a, T> {
 
     #[allow(clippy::option_option)]
     #[inline]
-    pub fn get(&self, index: usize) -> Option<Option<T>> {
+    pub fn get(&self, index: usize) -> Option<Option<T::As<'a>>>
+    where
+        T: BorrowDatum,
+    {
         let Some(is_null) = self.null_slice.get(index) else { return None };
         if is_null {
             return Some(None);
@@ -245,7 +253,10 @@ impl<'a, T: FromDatum> Array<'a, T> {
     /// # Safety
     /// This assumes the pointer is to a valid element of that type.
     #[inline]
-    unsafe fn bring_it_back_now(&self, ptr: *const u8, is_null: bool) -> Option<T> {
+    unsafe fn bring_it_back_now(&self, ptr: *const u8, is_null: bool) -> Option<T::As<'a>>
+    where
+        T: BorrowDatum,
+    {
         match is_null {
             true => None,
             false => unsafe { self.slide_impl.bring_it_back_now(self, ptr) },
@@ -265,7 +276,10 @@ impl<'a, T: FromDatum> Array<'a, T> {
     /// Do not cumulatively invoke this more than `len - null_count`!
     /// Doing so will result in reading uninitialized data, which is UB!
     #[inline]
-    unsafe fn one_hop_this_time(&self, ptr: *const u8) -> *const u8 {
+    unsafe fn one_hop_this_time(&self, ptr: *const u8) -> *const u8
+    where
+        T: BorrowDatum,
+    {
         unsafe {
             let offset = self.slide_impl.hop_size(ptr);
             // SAFETY: ptr stops at 1-past-end of the array's varlena
@@ -373,20 +387,28 @@ fn as_slice<'a, T: Sized + FromDatum>(array: &'a Array<'_, T>) -> Result<&'a [T]
 }
 
 mod casper {
+    use super::*;
     use crate::layout::Align;
     use crate::{pg_sys, varlena, Array, FromDatum};
 
     // it's a pop-culture reference (https://en.wikipedia.org/wiki/Cha_Cha_Slide) not some fancy crypto thing you nerd
     /// Describes how to instantiate a value `T` from an [`Array`] and its backing byte array pointer.
     /// It also knows how to determine the size of an [`Array`] element value.
-    pub(super) trait ChaChaSlide<T: FromDatum> {
+    pub(super) trait ChaChaSlide<T>
+    where
+        T: BorrowDatum,
+    {
         /// Instantiate a `T` from the head of `ptr`
         ///
         /// # Safety
         ///
         /// This function is unsafe as it cannot guarantee that `ptr` points to the proper bytes
         /// that represent a `T`, or even that it belongs to `array`.  Both of which must be true
-        unsafe fn bring_it_back_now(&self, array: &Array<T>, ptr: *const u8) -> Option<T>;
+        unsafe fn bring_it_back_now<'a>(
+            &self,
+            array: &Array<'a, T>,
+            ptr: *const u8,
+        ) -> Option<T::As<'a>>;
 
         /// Determine how many bytes are used to represent `T`.  This could be fixed size or
         /// even determined at runtime by whatever `ptr` is known to be pointing at.
@@ -416,9 +438,13 @@ mod casper {
     /// Fixed-size byval array elements. N should be 1, 2, 4, or 8. Note that
     /// `T` (the rust type) may have a different size than `N`.
     pub(super) struct FixedSizeByVal<const N: usize>;
-    impl<T: FromDatum, const N: usize> ChaChaSlide<T> for FixedSizeByVal<N> {
+    impl<T: BorrowDatum, const N: usize> ChaChaSlide<T> for FixedSizeByVal<N> {
         #[inline(always)]
-        unsafe fn bring_it_back_now(&self, array: &Array<T>, ptr: *const u8) -> Option<T> {
+        unsafe fn bring_it_back_now<'a>(
+            &self,
+            array: &Array<'a, T>,
+            ptr: *const u8,
+        ) -> Option<T::As<'a>> {
             // This branch is optimized away (because `N` is constant).
             let datum = match N {
                 // for match with `Datum`, read through that directly to
@@ -429,7 +455,7 @@ mod casper {
                 8 => pg_sys::Datum::from(byval_read::<u64>(ptr)),
                 _ => unreachable!("`N` must be 1, 2, 4, or 8 (got {N})"),
             };
-            T::from_polymorphic_datum(datum, false, array.raw.oid())
+            Some(T::borrow(crate::Datum::promote(datum)))
         }
 
         #[inline(always)]
@@ -442,11 +468,11 @@ mod casper {
     pub(super) struct PassByVarlena {
         pub(super) align: Align,
     }
-    impl<T: FromDatum> ChaChaSlide<T> for PassByVarlena {
+    impl<T: BorrowDatum> ChaChaSlide<T> for PassByVarlena {
         #[inline]
-        unsafe fn bring_it_back_now(&self, array: &Array<T>, ptr: *const u8) -> Option<T> {
+        unsafe fn bring_it_back_now<'a>(&self, array: &Array<'a, T>, ptr: *const u8) -> Option<T::As<'a>> {
             let datum = pg_sys::Datum::from(ptr);
-            unsafe { T::from_polymorphic_datum(datum, false, array.raw.oid()) }
+            Some(T::borrow(crate::Datum::promote(datum)))
         }
 
         #[inline]
@@ -462,11 +488,11 @@ mod casper {
 
     /// Array elements are standard C strings (`char *`), which are pass-by-reference
     pub(super) struct PassByCStr;
-    impl<T: FromDatum> ChaChaSlide<T> for PassByCStr {
+    impl<T: BorrowDatum> ChaChaSlide<T> for PassByCStr {
         #[inline]
-        unsafe fn bring_it_back_now(&self, array: &Array<T>, ptr: *const u8) -> Option<T> {
+        unsafe fn bring_it_back_now<'a>(&self, array: &Array<'a, T>, ptr: *const u8) -> Option<T::As<'a>> {
             let datum = pg_sys::Datum::from(ptr);
-            unsafe { T::from_polymorphic_datum(datum, false, array.raw.oid()) }
+            Some(T::borrow(crate::Datum::promote(datum)))
         }
 
         #[inline]
@@ -483,11 +509,15 @@ mod casper {
         pub(super) padded_size: usize,
     }
 
-    impl<T: FromDatum> ChaChaSlide<T> for PassByFixed {
+    impl<T: BorrowDatum> ChaChaSlide<T> for PassByFixed {
         #[inline]
-        unsafe fn bring_it_back_now(&self, array: &Array<T>, ptr: *const u8) -> Option<T> {
+        unsafe fn bring_it_back_now<'a>(
+            &self,
+            array: &Array<'a, T>,
+            ptr: *const u8,
+        ) -> Option<T::As<'a>> {
             let datum = pg_sys::Datum::from(ptr);
-            unsafe { T::from_polymorphic_datum(datum, false, array.raw.oid()) }
+            Some(T::borrow(crate::Datum::promote(datum)))
         }
 
         #[inline]
@@ -497,18 +527,18 @@ mod casper {
     }
 }
 
-pub struct VariadicArray<'a, T: FromDatum>(Array<'a, T>);
+pub struct VariadicArray<'a, T>(Array<'a, T>);
 
-impl<'a, T: FromDatum + serde::Serialize> serde::Serialize for VariadicArray<'a, T> {
-    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
-    where
-        S: Serializer,
-    {
-        serializer.collect_seq(self.0.iter())
-    }
-}
+// impl<'a, T: FromDatum + serde::Serialize> serde::Serialize for VariadicArray<'a, T> {
+//     fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
+//     where
+//         S: Serializer,
+//     {
+//         serializer.collect_seq(self.0.iter())
+//     }
+// }
 
-impl<'a, T: FromDatum> VariadicArray<'a, T> {
+impl<'a, T> VariadicArray<'a, T> {
     #[inline]
     pub fn into_array_type(self) -> *const pg_sys::ArrayType {
         self.0.into_array_type()
@@ -541,19 +571,22 @@ impl<'a, T: FromDatum> VariadicArray<'a, T> {
 
     #[allow(clippy::option_option)]
     #[inline]
-    pub fn get(&self, i: usize) -> Option<Option<T>> {
+    pub fn get(&self, i: usize) -> Option<Option<T::As<'a>>>
+    where
+        T: BorrowDatum,
+    {
         self.0.get(i)
     }
 }
 
-pub struct ArrayTypedIterator<'a, T: 'a + FromDatum> {
+pub struct ArrayTypedIterator<'a, T: 'a> {
     array: &'a Array<'a, T>,
     curr: usize,
     ptr: *const u8,
 }
 
-impl<'a, T: FromDatum> Iterator for ArrayTypedIterator<'a, T> {
-    type Item = T;
+impl<'a, T: BorrowDatum> Iterator for ArrayTypedIterator<'a, T> {
+    type Item = T::As<'a>;
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
@@ -577,26 +610,26 @@ impl<'a, T: FromDatum> Iterator for ArrayTypedIterator<'a, T> {
     }
 }
 
-impl<'a, T: FromDatum> ExactSizeIterator for ArrayTypedIterator<'a, T> {}
-impl<'a, T: FromDatum> core::iter::FusedIterator for ArrayTypedIterator<'a, T> {}
+impl<'a, T: BorrowDatum> ExactSizeIterator for ArrayTypedIterator<'a, T> {}
+impl<'a, T: BorrowDatum> core::iter::FusedIterator for ArrayTypedIterator<'a, T> {}
 
-impl<'a, T: FromDatum + serde::Serialize> serde::Serialize for ArrayTypedIterator<'a, T> {
-    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
-    where
-        S: Serializer,
-    {
-        serializer.collect_seq(self.array.iter())
-    }
-}
+// impl<'a, T: FromDatum + serde::Serialize> serde::Serialize for ArrayTypedIterator<'a, T> {
+//     fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
+//     where
+//         S: Serializer,
+//     {
+//         serializer.collect_seq(self.array.iter())
+//     }
+// }
 
-pub struct ArrayIterator<'a, T: 'a + FromDatum> {
+pub struct ArrayIterator<'a, T: 'a> {
     array: &'a Array<'a, T>,
     curr: usize,
     ptr: *const u8,
 }
 
-impl<'a, T: FromDatum> Iterator for ArrayIterator<'a, T> {
-    type Item = Option<T>;
+impl<'a, T: BorrowDatum> Iterator for ArrayIterator<'a, T> {
+    type Item = Option<T::As<'a>>;
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
@@ -621,17 +654,17 @@ impl<'a, T: FromDatum> Iterator for ArrayIterator<'a, T> {
     }
 }
 
-impl<'a, T: FromDatum> ExactSizeIterator for ArrayIterator<'a, T> {}
-impl<'a, T: FromDatum> core::iter::FusedIterator for ArrayIterator<'a, T> {}
+impl<'a, T: BorrowDatum> ExactSizeIterator for ArrayIterator<'a, T> {}
+impl<'a, T: BorrowDatum> core::iter::FusedIterator for ArrayIterator<'a, T> {}
 
-pub struct ArrayIntoIterator<'a, T: FromDatum> {
+pub struct ArrayIntoIterator<'a, T> {
     array: Array<'a, T>,
     curr: usize,
     ptr: *const u8,
 }
 
-impl<'a, T: FromDatum> IntoIterator for Array<'a, T> {
-    type Item = Option<T>;
+impl<'a, T: BorrowDatum + 'a> IntoIterator for Array<'a, T> {
+    type Item = Option<T::As<'a>>;
     type IntoIter = ArrayIntoIterator<'a, T>;
 
     #[inline]
@@ -641,8 +674,8 @@ impl<'a, T: FromDatum> IntoIterator for Array<'a, T> {
     }
 }
 
-impl<'a, T: FromDatum> IntoIterator for VariadicArray<'a, T> {
-    type Item = Option<T>;
+impl<'a, T: BorrowDatum + 'a> IntoIterator for VariadicArray<'a, T> {
+    type Item = Option<T::As<'a>>;
     type IntoIter = ArrayIntoIterator<'a, T>;
 
     #[inline]
@@ -652,8 +685,8 @@ impl<'a, T: FromDatum> IntoIterator for VariadicArray<'a, T> {
     }
 }
 
-impl<'a, T: FromDatum> Iterator for ArrayIntoIterator<'a, T> {
-    type Item = Option<T>;
+impl<'a, T: BorrowDatum + 'a> Iterator for ArrayIntoIterator<'a, T> {
+    type Item = Option<T::As<'a>>;
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
@@ -678,10 +711,10 @@ impl<'a, T: FromDatum> Iterator for ArrayIntoIterator<'a, T> {
     }
 }
 
-impl<'a, T: FromDatum> ExactSizeIterator for ArrayIntoIterator<'a, T> {}
-impl<'a, T: FromDatum> core::iter::FusedIterator for ArrayIntoIterator<'a, T> {}
+impl<'a, T: BorrowDatum + 'a> ExactSizeIterator for ArrayIntoIterator<'a, T> {}
+impl<'a, T: BorrowDatum + 'a> core::iter::FusedIterator for ArrayIntoIterator<'a, T> {}
 
-impl<'a, T: FromDatum> FromDatum for VariadicArray<'a, T> {
+impl<'a, T: BorrowDatum + 'a> FromDatum for VariadicArray<'a, T> {
     #[inline]
     unsafe fn from_polymorphic_datum(
         datum: pg_sys::Datum,
@@ -692,7 +725,7 @@ impl<'a, T: FromDatum> FromDatum for VariadicArray<'a, T> {
     }
 }
 
-impl<'a, T: FromDatum> FromDatum for Array<'a, T> {
+impl<'a, T: BorrowDatum> FromDatum for Array<'a, T> {
     #[inline]
     unsafe fn from_polymorphic_datum(
         datum: pg_sys::Datum,
@@ -729,77 +762,77 @@ impl<'a, T: FromDatum> FromDatum for Array<'a, T> {
     }
 }
 
-impl<T: IntoDatum + FromDatum> IntoDatum for Array<'_, T> {
-    #[inline]
-    fn into_datum(self) -> Option<Datum> {
-        let array_type = self.into_array_type();
-        let datum = Datum::from(array_type);
-        Some(datum)
-    }
+// impl<T: IntoDatum + BorrowDatum> IntoDatum for Array<'_, T> {
+//     #[inline]
+//     fn into_datum(self) -> Option<Datum> {
+//         let array_type = self.into_array_type();
+//         let datum = Datum::from(array_type);
+//         Some(datum)
+//     }
 
-    #[inline]
-    fn type_oid() -> Oid {
-        T::array_type_oid()
-    }
+//     #[inline]
+//     fn type_oid() -> Oid {
+//         T::array_type_oid()
+//     }
 
-    fn composite_type_oid(&self) -> Option<Oid> {
-        Some(unsafe { pg_sys::get_array_type(self.raw.oid()) })
-    }
-}
+//     fn composite_type_oid(&self) -> Option<Oid> {
+//         Some(unsafe { pg_sys::get_array_type(self.raw.oid()) })
+//     }
+// }
 
-impl<T: FromDatum> FromDatum for Vec<T> {
-    #[inline]
-    unsafe fn from_polymorphic_datum(
-        datum: pg_sys::Datum,
-        is_null: bool,
-        typoid: pg_sys::Oid,
-    ) -> Option<Vec<T>> {
-        if is_null {
-            None
-        } else {
-            Array::<T>::from_polymorphic_datum(datum, is_null, typoid)
-                .map(|array| array.iter_deny_null().collect::<Vec<_>>())
-        }
-    }
+// impl<T: FromDatum> FromDatum for Vec<T> {
+//     #[inline]
+//     unsafe fn from_polymorphic_datum(
+//         datum: pg_sys::Datum,
+//         is_null: bool,
+//         typoid: pg_sys::Oid,
+//     ) -> Option<Vec<T>> {
+//         if is_null {
+//             None
+//         } else {
+//             Array::<T>::from_polymorphic_datum(datum, is_null, typoid)
+//                 .map(|array| array.iter_deny_null().collect::<Vec<_>>())
+//         }
+//     }
 
-    unsafe fn from_datum_in_memory_context(
-        memory_context: PgMemoryContexts,
-        datum: pg_sys::Datum,
-        is_null: bool,
-        typoid: pg_sys::Oid,
-    ) -> Option<Self>
-    where
-        Self: Sized,
-    {
-        Array::<T>::from_datum_in_memory_context(memory_context, datum, is_null, typoid)
-            .map(|array| array.iter_deny_null().collect::<Vec<_>>())
-    }
-}
+//     unsafe fn from_datum_in_memory_context(
+//         memory_context: PgMemoryContexts,
+//         datum: pg_sys::Datum,
+//         is_null: bool,
+//         typoid: pg_sys::Oid,
+//     ) -> Option<Self>
+//     where
+//         Self: Sized,
+//     {
+//         Array::<T>::from_datum_in_memory_context(memory_context, datum, is_null, typoid)
+//             .map(|array| array.iter_deny_null().collect::<Vec<_>>())
+//     }
+// }
 
-impl<T: FromDatum> FromDatum for Vec<Option<T>> {
-    #[inline]
-    unsafe fn from_polymorphic_datum(
-        datum: pg_sys::Datum,
-        is_null: bool,
-        typoid: pg_sys::Oid,
-    ) -> Option<Vec<Option<T>>> {
-        Array::<T>::from_polymorphic_datum(datum, is_null, typoid)
-            .map(|array| array.iter().collect::<Vec<_>>())
-    }
+// impl<T: FromDatum> FromDatum for Vec<Option<T>> {
+//     #[inline]
+//     unsafe fn from_polymorphic_datum(
+//         datum: pg_sys::Datum,
+//         is_null: bool,
+//         typoid: pg_sys::Oid,
+//     ) -> Option<Vec<Option<T>>> {
+//         Array::<T>::from_polymorphic_datum(datum, is_null, typoid)
+//             .map(|array| array.iter().collect::<Vec<_>>())
+//     }
 
-    unsafe fn from_datum_in_memory_context(
-        memory_context: PgMemoryContexts,
-        datum: pg_sys::Datum,
-        is_null: bool,
-        typoid: pg_sys::Oid,
-    ) -> Option<Self>
-    where
-        Self: Sized,
-    {
-        Array::<T>::from_datum_in_memory_context(memory_context, datum, is_null, typoid)
-            .map(|array| array.iter().collect::<Vec<_>>())
-    }
-}
+//     unsafe fn from_datum_in_memory_context(
+//         memory_context: PgMemoryContexts,
+//         datum: pg_sys::Datum,
+//         is_null: bool,
+//         typoid: pg_sys::Oid,
+//     ) -> Option<Self>
+//     where
+//         Self: Sized,
+//     {
+//         Array::<T>::from_datum_in_memory_context(memory_context, datum, is_null, typoid)
+//             .map(|array| array.iter().collect::<Vec<_>>())
+//     }
+// }
 
 impl<T> IntoDatum for Vec<T>
 where

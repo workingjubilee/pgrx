@@ -110,7 +110,7 @@ numeric_to_oversized_primitive!(u32, i32, numeric_int4);
 numeric_to_oversized_primitive!(u16, i16, numeric_int2);
 numeric_to_oversized_primitive!(u8, i16, numeric_int2);
 
-fn to_primitive_helper<T: FromDatum>(
+fn to_primitive_helper<'dat, T: FromDatum + crate::datum::BorrowDatum<As<'dat> = T> + 'dat>(
     value: &AnyNumeric,
     func: unsafe fn(pg_sys::FunctionCallInfo) -> pg_sys::Datum,
 ) -> Result<T, Error> {
