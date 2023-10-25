@@ -475,12 +475,12 @@ pub unsafe fn pg_func_extra<ReturnType, DefaultValue: FnOnce() -> ReturnType>(
 ///     assert_eq!(oid, pg_sys::RelationRelationId); // your value could be different, maybe
 /// }
 /// ```
-pub unsafe fn direct_function_call<'a, R: BorrowDatum>(
+pub unsafe fn direct_function_call<R: FromDatum>(
     func: unsafe fn(pg_sys::FunctionCallInfo) -> pg_sys::Datum,
     // TODO: this could take an iterator, but it would break turbofish :(
     args: &[Option<pg_sys::Datum>],
-) -> Option<R::As<'a>> {
-    direct_function_call_as_datum(func, args).map_or(None, |d| Some(R::borrow(crate::datum::Datum::promote(d))))
+) -> Option<R> {
+    direct_function_call_as_datum(func, args).map_or(None, |d| R::from_datum(d, false))
 }
 
 /// Akin to [direct_function_call], but specifically for calling those functions declared with the

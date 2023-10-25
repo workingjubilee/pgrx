@@ -523,7 +523,7 @@ use core::ptr;
 use core::str::{self, Utf8Error};
 
 pub unsafe trait BorrowDatum {
-    type As<'dat>
+    type As<'dat>: Sized
     where
         Self: 'dat;
     unsafe fn borrow<'dat>(datum: Datum<'dat>) -> Self::As<'dat>;
@@ -562,6 +562,54 @@ unsafe impl BorrowDatum for i64 {
     }
 }
 
+unsafe impl BorrowDatum for i8 {
+    type As<'dat> = i8;
+    unsafe fn borrow<'dat>(d: Datum<'dat>) -> Self::As<'dat> {
+        let data = d.0.value();
+        data as i8
+    }
+}
+
+unsafe impl BorrowDatum for i16 {
+    type As<'dat> = i16;
+    unsafe fn borrow<'dat>(d: Datum<'dat>) -> Self::As<'dat> {
+        let data = d.0.value();
+        data as i16
+    }
+}
+
+unsafe impl BorrowDatum for i32 {
+    type As<'dat> = i32;
+    unsafe fn borrow<'dat>(d: Datum<'dat>) -> Self::As<'dat> {
+        let data = d.0.value();
+        data as i32
+    }
+}
+
+unsafe impl BorrowDatum for f32 {
+    type As<'dat> = f32;
+    unsafe fn borrow<'dat>(d: Datum<'dat>) -> Self::As<'dat> {
+        let data = d.0.value();
+        f32::from_bits(data as u32)
+    }
+}
+
+unsafe impl BorrowDatum for f64 {
+    type As<'dat> = f64;
+    unsafe fn borrow<'dat>(d: Datum<'dat>) -> Self::As<'dat> {
+        let data = d.0.value();
+        f64::from_bits(data as u64)
+    }
+}
+
+unsafe impl BorrowDatum for String {
+    type As<'dat> = String;
+    unsafe fn borrow<'dat>(d: Datum<'dat>) -> Self::As<'dat> {
+        let string = <str as BorrowDatum>::borrow(d);
+        string.to_owned()
+    }
+}
+
 pub trait TryDatum {
     type Error;
 }
@@ -582,13 +630,6 @@ pub enum DatumKind<T: TryDatum> {
     TypeErr(<T as TryDatum>::Error),
 }
 
-unsafe impl BorrowDatum for i32 {
-    type As<'dat> = Result<i32, TryFromIntError>;
-    unsafe fn borrow<'dat>(d: Datum<'dat>) -> Self::As<'dat> {
-        let datum = d.0.value();
-        i32::try_from(datum)
-    }
-}
 
 struct ArenaLt<'arena>(PhantomData<&'arena Arena<'arena>>);
 

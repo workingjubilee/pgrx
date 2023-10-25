@@ -64,9 +64,10 @@ where T: ?Sized, {
     raw: Toast<RawArray>,
 }
 
-impl<'a, T: Debug> Debug for Array<'a, T> {
+impl<'a, T: ?Sized + Debug> Debug for Array<'a, T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        f.debug_list().entries(self.iter()).finish()
+        todo!()
+        // f.debug_list().entries(self.iter()).finish()
     }
 }
 
@@ -107,7 +108,7 @@ impl NullKind<'_> {
 // }
 
 #[deny(unsafe_op_in_unsafe_fn)]
-impl<'a, T> Array<'a, T> {
+impl<'a, T: ?Sized> Array<'a, T> {
     /// # Safety
     ///
     /// This function requires that the RawArray was obtained in a properly-constructed form
@@ -396,7 +397,7 @@ mod casper {
     /// It also knows how to determine the size of an [`Array`] element value.
     pub(super) trait ChaChaSlide<T>
     where
-        T: BorrowDatum,
+        T: ?Sized + BorrowDatum,
     {
         /// Instantiate a `T` from the head of `ptr`
         ///
@@ -438,7 +439,7 @@ mod casper {
     /// Fixed-size byval array elements. N should be 1, 2, 4, or 8. Note that
     /// `T` (the rust type) may have a different size than `N`.
     pub(super) struct FixedSizeByVal<const N: usize>;
-    impl<T: BorrowDatum, const N: usize> ChaChaSlide<T> for FixedSizeByVal<N> {
+    impl<T: ?Sized + BorrowDatum, const N: usize> ChaChaSlide<T> for FixedSizeByVal<N> {
         #[inline(always)]
         unsafe fn bring_it_back_now<'a>(
             &self,
@@ -468,7 +469,7 @@ mod casper {
     pub(super) struct PassByVarlena {
         pub(super) align: Align,
     }
-    impl<T: BorrowDatum> ChaChaSlide<T> for PassByVarlena {
+    impl<T: ?Sized + BorrowDatum> ChaChaSlide<T> for PassByVarlena {
         #[inline]
         unsafe fn bring_it_back_now<'a>(&self, array: &Array<'a, T>, ptr: *const u8) -> Option<T::As<'a>> {
             let datum = pg_sys::Datum::from(ptr);
@@ -488,7 +489,7 @@ mod casper {
 
     /// Array elements are standard C strings (`char *`), which are pass-by-reference
     pub(super) struct PassByCStr;
-    impl<T: BorrowDatum> ChaChaSlide<T> for PassByCStr {
+    impl<T: ?Sized + BorrowDatum> ChaChaSlide<T> for PassByCStr {
         #[inline]
         unsafe fn bring_it_back_now<'a>(&self, array: &Array<'a, T>, ptr: *const u8) -> Option<T::As<'a>> {
             let datum = pg_sys::Datum::from(ptr);
@@ -509,7 +510,7 @@ mod casper {
         pub(super) padded_size: usize,
     }
 
-    impl<T: BorrowDatum> ChaChaSlide<T> for PassByFixed {
+    impl<T: ?Sized + BorrowDatum> ChaChaSlide<T> for PassByFixed {
         #[inline]
         unsafe fn bring_it_back_now<'a>(
             &self,
@@ -579,13 +580,13 @@ impl<'a, T> VariadicArray<'a, T> {
     }
 }
 
-pub struct ArrayTypedIterator<'a, T: 'a> {
+pub struct ArrayTypedIterator<'a, T: ?Sized + 'a> {
     array: &'a Array<'a, T>,
     curr: usize,
     ptr: *const u8,
 }
 
-impl<'a, T: BorrowDatum> Iterator for ArrayTypedIterator<'a, T> {
+impl<'a, T: ?Sized + BorrowDatum> Iterator for ArrayTypedIterator<'a, T> {
     type Item = T::As<'a>;
 
     #[inline]
@@ -622,13 +623,13 @@ impl<'a, T: BorrowDatum> core::iter::FusedIterator for ArrayTypedIterator<'a, T>
 //     }
 // }
 
-pub struct ArrayIterator<'a, T: 'a> {
+pub struct ArrayIterator<'a, T: ?Sized + 'a> {
     array: &'a Array<'a, T>,
     curr: usize,
     ptr: *const u8,
 }
 
-impl<'a, T: BorrowDatum> Iterator for ArrayIterator<'a, T> {
+impl<'a, T: ?Sized + BorrowDatum> Iterator for ArrayIterator<'a, T> {
     type Item = Option<T::As<'a>>;
 
     #[inline]
@@ -657,7 +658,7 @@ impl<'a, T: BorrowDatum> Iterator for ArrayIterator<'a, T> {
 impl<'a, T: BorrowDatum> ExactSizeIterator for ArrayIterator<'a, T> {}
 impl<'a, T: BorrowDatum> core::iter::FusedIterator for ArrayIterator<'a, T> {}
 
-pub struct ArrayIntoIterator<'a, T> {
+pub struct ArrayIntoIterator<'a, T: ?Sized> {
     array: Array<'a, T>,
     curr: usize,
     ptr: *const u8,
@@ -685,7 +686,7 @@ impl<'a, T: BorrowDatum + 'a> IntoIterator for VariadicArray<'a, T> {
     }
 }
 
-impl<'a, T: BorrowDatum + 'a> Iterator for ArrayIntoIterator<'a, T> {
+impl<'a, T: ?Sized + BorrowDatum + 'a> Iterator for ArrayIntoIterator<'a, T> {
     type Item = Option<T::As<'a>>;
 
     #[inline]
@@ -762,77 +763,81 @@ impl<'a, T: BorrowDatum> FromDatum for Array<'a, T> {
     }
 }
 
-// impl<T: IntoDatum + BorrowDatum> IntoDatum for Array<'_, T> {
-//     #[inline]
-//     fn into_datum(self) -> Option<Datum> {
-//         let array_type = self.into_array_type();
-//         let datum = Datum::from(array_type);
-//         Some(datum)
-//     }
+impl<T: IntoDatum + BorrowDatum> IntoDatum for Array<'_, T> {
+    #[inline]
+    fn into_datum(self) -> Option<Datum> {
+        let array_type = self.into_array_type();
+        let datum = Datum::from(array_type);
+        Some(datum)
+    }
 
-//     #[inline]
-//     fn type_oid() -> Oid {
-//         T::array_type_oid()
-//     }
+    #[inline]
+    fn type_oid() -> Oid {
+        T::array_type_oid()
+    }
 
-//     fn composite_type_oid(&self) -> Option<Oid> {
-//         Some(unsafe { pg_sys::get_array_type(self.raw.oid()) })
-//     }
-// }
+    fn composite_type_oid(&self) -> Option<Oid> {
+        Some(unsafe { pg_sys::get_array_type(self.raw.oid()) })
+    }
+}
 
-// impl<T: FromDatum> FromDatum for Vec<T> {
-//     #[inline]
-//     unsafe fn from_polymorphic_datum(
-//         datum: pg_sys::Datum,
-//         is_null: bool,
-//         typoid: pg_sys::Oid,
-//     ) -> Option<Vec<T>> {
-//         if is_null {
-//             None
-//         } else {
-//             Array::<T>::from_polymorphic_datum(datum, is_null, typoid)
-//                 .map(|array| array.iter_deny_null().collect::<Vec<_>>())
-//         }
-//     }
+impl<T: FromDatum> FromDatum for Vec<T> {
+    #[inline]
+    unsafe fn from_polymorphic_datum(
+        datum: pg_sys::Datum,
+        is_null: bool,
+        typoid: pg_sys::Oid,
+    ) -> Option<Vec<T>> {
+        if is_null {
+            None
+        } else {
+            // Array::<T>::from_polymorphic_datum(datum, is_null, typoid)
+            //     .map(|array| array.iter_deny_null().collect::<Vec<_>>())
+            todo!()
+        }
+    }
 
-//     unsafe fn from_datum_in_memory_context(
-//         memory_context: PgMemoryContexts,
-//         datum: pg_sys::Datum,
-//         is_null: bool,
-//         typoid: pg_sys::Oid,
-//     ) -> Option<Self>
-//     where
-//         Self: Sized,
-//     {
-//         Array::<T>::from_datum_in_memory_context(memory_context, datum, is_null, typoid)
-//             .map(|array| array.iter_deny_null().collect::<Vec<_>>())
-//     }
-// }
+    unsafe fn from_datum_in_memory_context(
+        memory_context: PgMemoryContexts,
+        datum: pg_sys::Datum,
+        is_null: bool,
+        typoid: pg_sys::Oid,
+    ) -> Option<Self>
+    where
+        Self: Sized,
+    {
+        // Array::<T>::from_datum_in_memory_context(memory_context, datum, is_null, typoid)
+        //     .map(|array| array.iter_deny_null().collect::<Vec<_>>())
+        todo!()
+    }
+}
 
-// impl<T: FromDatum> FromDatum for Vec<Option<T>> {
-//     #[inline]
-//     unsafe fn from_polymorphic_datum(
-//         datum: pg_sys::Datum,
-//         is_null: bool,
-//         typoid: pg_sys::Oid,
-//     ) -> Option<Vec<Option<T>>> {
-//         Array::<T>::from_polymorphic_datum(datum, is_null, typoid)
-//             .map(|array| array.iter().collect::<Vec<_>>())
-//     }
+impl<T: FromDatum> FromDatum for Vec<Option<T>> {
+    #[inline]
+    unsafe fn from_polymorphic_datum(
+        datum: pg_sys::Datum,
+        is_null: bool,
+        typoid: pg_sys::Oid,
+    ) -> Option<Vec<Option<T>>> {
+        // Array::<T>::from_polymorphic_datum(datum, is_null, typoid)
+        //     .map(|array| array.iter().collect::<Vec<_>>())
+        todo!()
+    }
 
-//     unsafe fn from_datum_in_memory_context(
-//         memory_context: PgMemoryContexts,
-//         datum: pg_sys::Datum,
-//         is_null: bool,
-//         typoid: pg_sys::Oid,
-//     ) -> Option<Self>
-//     where
-//         Self: Sized,
-//     {
-//         Array::<T>::from_datum_in_memory_context(memory_context, datum, is_null, typoid)
-//             .map(|array| array.iter().collect::<Vec<_>>())
-//     }
-// }
+    unsafe fn from_datum_in_memory_context(
+        memory_context: PgMemoryContexts,
+        datum: pg_sys::Datum,
+        is_null: bool,
+        typoid: pg_sys::Oid,
+    ) -> Option<Self>
+    where
+        Self: Sized,
+    {
+        // Array::<T>::from_datum_in_memory_context(memory_context, datum, is_null, typoid)
+        //     .map(|array| array.iter().collect::<Vec<_>>())
+        todo!()
+    }
+}
 
 impl<T> IntoDatum for Vec<T>
 where
