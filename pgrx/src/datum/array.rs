@@ -97,7 +97,7 @@ impl NullKind<'_> {
     }
 }
 
-impl<T: FromDatum + Serialize> Serialize for Array<'_, T> {
+impl<'dat, T: UnboxDatum<As<'dat> = T> + serde::Serialize> serde::Serialize for Array<'dat, T> {
     fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
     where
         S: Serializer,
@@ -790,8 +790,9 @@ impl<'dat, T: FromDatum + UnboxDatum<As<'dat> = T> + 'dat> FromDatum for Vec<T> 
         if is_null {
             None
         } else {
-            Array::<T>::from_polymorphic_datum(datum, is_null, typoid)
-                .map(|array| array.iter_deny_null().collect::<Vec<_>>())
+            todo!()
+            // Array::<T>::from_polymorphic_datum(datum, is_null, typoid)
+            //     .map(|array| array.iter_deny_null().collect::<Vec<_>>())
         }
     }
 
@@ -804,8 +805,9 @@ impl<'dat, T: FromDatum + UnboxDatum<As<'dat> = T> + 'dat> FromDatum for Vec<T> 
     where
         Self: Sized,
     {
-        Array::<T>::from_datum_in_memory_context(memory_context, datum, is_null, typoid)
-            .map(|array| array.iter_deny_null().collect::<Vec<_>>())
+        todo!()
+        // Array::<T>::from_datum_in_memory_context(memory_context, datum, is_null, typoid)
+        //     .map(|array| array.iter_deny_null().collect::<Vec<_>>())
     }
 }
 
@@ -816,8 +818,9 @@ impl<'dat, T: FromDatum + UnboxDatum<As<'dat> = T>> FromDatum for Vec<Option<T>>
         is_null: bool,
         typoid: pg_sys::Oid,
     ) -> Option<Vec<Option<T>>> {
-        Array::<T>::from_polymorphic_datum(datum, is_null, typoid)
-            .map(|array| array.iter().collect::<Vec<_>>())
+        todo!()
+        // Array::<T>::from_polymorphic_datum(datum, is_null, typoid)
+        //     .map(|array| array.iter().collect::<Vec<_>>())
     }
 
     unsafe fn from_datum_in_memory_context(
@@ -829,8 +832,9 @@ impl<'dat, T: FromDatum + UnboxDatum<As<'dat> = T>> FromDatum for Vec<Option<T>>
     where
         Self: Sized,
     {
-        Array::<T>::from_datum_in_memory_context(memory_context, datum, is_null, typoid)
-            .map(|array| array.iter().collect::<Vec<_>>())
+        todo!()
+        // Array::<T>::from_datum_in_memory_context(memory_context, datum, is_null, typoid)
+        //     .map(|array| array.iter().collect::<Vec<_>>())
     }
 }
 
