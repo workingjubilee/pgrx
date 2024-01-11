@@ -554,7 +554,7 @@ impl<'dat, T: UnboxDatum> VariadicArray<'dat, T> {
 
     #[allow(clippy::option_option)]
     #[inline]
-    pub fn get(&self, i: usize) -> Option<Option<T>> {
+    pub fn get(&self, i: usize) -> Option<Option<<T as UnboxDatum>::As<'dat>>> {
         self.0.get(i)
     }
 }

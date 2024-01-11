@@ -198,7 +198,7 @@ unsafe impl<T> UnboxDatum for PgBox<T, AllocatedByPostgres> {
     }
 }
 
-unsafe impl<'de, T> UnboxDatum for T
+unsafe impl<'de, T: FromDatum> UnboxDatum for T
 where
     T: PostgresType + serde::Deserialize<'de>,
 {
