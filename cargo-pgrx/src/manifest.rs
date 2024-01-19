@@ -11,7 +11,7 @@ use cargo_metadata::Metadata;
 use cargo_toml::Manifest;
 use clap_cargo::Features;
 use eyre::{eyre, Context};
-use pgrx_pg_config::{PgConfig, Pgrx};
+use pgrx_pg_config::{PgConfig, Pgrx, PgConfigSelector};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
@@ -209,4 +209,21 @@ pub(crate) fn get_package_manifest(
         Manifest::from_path(&package_manifest_path).wrap_err("Couldn't parse manifest")?,
         package_manifest_path,
     ))
+}
+
+pub(crate) fn all_pg_in_both_tomls<'a>(
+    manifest: &'a Manifest,
+    pgrx: &Pgrx,
+) -> impl Iterator<Item = eyre::Result<PgConfig>> + 'a {
+    pgrx.iter(PgConfigSelector::All).filter(|result|
+        match result {
+            Ok(pg_config) => if let Ok(ver) = pg_config.major_version() {
+                manifest.features.contains_key(&format!("pg{ver}"))
+            } else {
+                // Don't let PgConfigs without versions through
+                false
+            }
+            // Pass errors along
+            _ => true
+        })
 }
