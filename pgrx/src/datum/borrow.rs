@@ -8,6 +8,12 @@ use core::{ffi, mem, ptr};
 /// # Safety
 /// Despite its pleasant-sounding name, this implements a fairly low-level detail.
 /// It exists to allow other code to use that nice-sounding BorrowDatum bound.
+/// Outside of the pgrx library, it is probably incorrect to call and rely on this:
+/// instead use the convenience functions available in `pgrx::datum`.
+// TODO: implement those.
+///
+/// Its behavior is trusted for ABI details, and it should not be implemented if any doubt
+/// exists of whether the type would be suitable for passing via Postgres.
 pub unsafe trait BorrowDatum {
     /// The "native" passing convention for this type.
     ///
