@@ -189,10 +189,7 @@ where
 {
     type CallRet = Self;
 
-    fn into_ret(self) -> Ret<Self>
-    where
-        Self: Sized,
-    {
+    fn into_ret(self) -> Ret<Self> {
         Ret::Once(self)
     }
 
@@ -260,10 +257,7 @@ macro_rules! impl_table_iter {
         {
             type CallRet = Self;
 
-            fn into_ret(self) -> Ret<Self>
-            where
-                Self: Sized,
-            {
+            fn into_ret(self) -> Ret<Self> {
                 Ret::Once(self)
             }
 
