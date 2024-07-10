@@ -12,6 +12,7 @@ mod fixed_size;
 mod generic_enum;
 mod hexint;
 mod hstore_clone;
+mod inoutfuncs;
 mod ordered;
 mod rust_enum;
 

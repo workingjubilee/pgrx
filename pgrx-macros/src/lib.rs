@@ -942,7 +942,10 @@ fn impl_postgres_type(ast: DeriveInput) -> syn::Result<proc_macro2::TokenStream>
         stream.extend(quote! {
             #[doc(hidden)]
             #[::pgrx::pgrx_macros::pg_extern(immutable,parallel_safe)]
-            pub fn #funcname_in #generics(input: Option<&::core::ffi::CStr>) -> Option<#name #generics> {
+            pub fn #funcname_in #generics(input: Option<&::core::ffi::CStr>, fcinfo: ::pgrx::pg_sys::FunctionCallInfo) -> Option<#name #generics> {
+                let arg = unsafe { pgrx::callconv::FcInfo::from_ptr(fcinfo).raw_args()[0] };
+                warning!("arg value: {:x}", arg.value.value());
+                warning!("arg isnull: {}", arg.isnull);
                 input.map_or_else(|| {
                     for m in <#name as ::pgrx::inoutfuncs::InOutFuncs>::NULL_ERROR_MESSAGE {
                         ::pgrx::pg_sys::error!("{m}");
