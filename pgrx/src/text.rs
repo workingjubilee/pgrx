@@ -143,7 +143,7 @@ unsafe impl BorrowDatum for Text {
     }
 }
 
-unsafe impl<'dat> SqlTranslatable for &'dat Text {
+unsafe impl SqlTranslatable for Text {
     fn argument_sql() -> Result<SqlMapping, ArgumentError> {
         Ok(SqlMapping::literal("TEXT"))
     }
