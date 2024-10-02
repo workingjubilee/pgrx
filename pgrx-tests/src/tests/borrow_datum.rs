@@ -1,4 +1,5 @@
 use pgrx::prelude::*;
+use pgrx::text::Text;
 
 // BorrowDatum only describes something as a valid argument, but every &T has a U we CAN return,
 // going from &T as arg to T as ret type. We also don't necessarily have SPI support for each type.
@@ -54,6 +55,11 @@ macro_rules! clonetrip_test {
     };
 }
 
+#[pg_extern]
+fn text_to_str<'a>(text: &'a Text) -> &'a str {
+    text.to_str().unwrap()
+}
+
 #[cfg(any(test, feature = "pg_test"))]
 #[pg_schema]
 mod tests {
@@ -81,4 +87,14 @@ mod tests {
         &'a pg_sys::Oid,
         &pg_sys::Oid::from(pg_sys::BuiltinOid::RECORDOID)
     );
+
+    #[pg_test]
+    fn test_text_silliness() -> Result<(), Box<dyn std::error::Error>> {
+        let txt = pgrx::text::text!("text string");
+        let str_text = text_to_str(txt);
+        let spi_text: &str = Spi::get_one(r#"SELECT text_to_str('text string'::text)"#)?
+            .ok_or("weird spi failure")?;
+        assert_eq!(str_text, &*spi_text);
+        Ok(())
+    }
 }

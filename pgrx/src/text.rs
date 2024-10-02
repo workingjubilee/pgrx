@@ -151,3 +151,36 @@ unsafe impl SqlTranslatable for Text {
         Ok(Returns::One(SqlMapping::literal("TEXT")))
     }
 }
+
+#[macro_export]
+macro_rules! text {
+    ($txt:literal) => {
+        // force compile-time evaluation for all this
+        const {
+            const LIT_BYTES: &'static [u8] = str::as_bytes($txt);
+            const LEN: usize = LIT_BYTES.len() + 4;
+            if LEN < (1024 * 1024 * 1024) {
+                const S: [u8; LEN] = {
+                    let len_bytes = (LEN << 2).to_ne_bytes();
+                    let mut b = [0u8; LEN];
+                    let mut i = 0;
+                    while i < LEN {
+                        b[i] = if i < 4 { len_bytes[i] } else { LIT_BYTES[i - 4] };
+                        i = i + 1;
+                    }
+                    b
+                };
+                // lifetime extension take the wheel
+                unsafe { &*(&S as *const [u8] as *const Text) }
+            } else {
+                panic!("cannot construct a text literal 1GB in size")
+            }
+        }
+    };
+}
+pub use text;
+
+#[test]
+fn text_literals_compile() {
+    let txt: &'static Text = text!("lol");
+}
