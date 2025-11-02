@@ -26,46 +26,44 @@ const END_TIMESTAMP_USEC: i64 = 9_223_371_331_200_000_000 - 1; // dec by 1 to ac
 /// A safe wrapper around Postgres `TIMESTAMP WITH TIME ZONE` type, backed by a [`pg_sys::Timestamp`] integer value.
 #[derive(Debug, Copy, Clone)]
 #[repr(transparent)]
-pub struct TimestampWithTimeZone(pg_sys::TimestampTz);
+pub struct TimestampTz(pg_sys::TimestampTz);
 
-impl From<TimestampWithTimeZone> for pg_sys::TimestampTz {
+pub type TimestampWithTimeZone = TimestampTz;
+
+impl From<TimestampTz> for pg_sys::TimestampTz {
     #[inline]
-    fn from(value: TimestampWithTimeZone) -> Self {
+    fn from(value: TimestampTz) -> Self {
         value.0
     }
 }
 
-/// Fallibly create a [`TimestampWithTimeZone`] from a Postgres [`pg_sys::TimestampTz`] value.
-impl TryFrom<pg_sys::TimestampTz> for TimestampWithTimeZone {
+/// Fallibly create a [`TimestampTz`] from a Postgres [`pg_sys::TimestampTz`] value.
+impl TryFrom<pg_sys::TimestampTz> for TimestampTz {
     type Error = FromTimeError;
 
     fn try_from(value: pg_sys::TimestampTz) -> Result<Self, Self::Error> {
         match value {
-            i64::MIN | i64::MAX | MIN_TIMESTAMP_USEC..=END_TIMESTAMP_USEC => {
-                Ok(TimestampWithTimeZone(value))
-            }
+            i64::MIN | i64::MAX | MIN_TIMESTAMP_USEC..=END_TIMESTAMP_USEC => Ok(TimestampTz(value)),
             _ => Err(FromTimeError::MicrosOutOfBounds),
         }
     }
 }
 
-impl TryFrom<pg_sys::Datum> for TimestampWithTimeZone {
+impl TryFrom<pg_sys::Datum> for TimestampTz {
     type Error = FromTimeError;
     fn try_from(datum: pg_sys::Datum) -> Result<Self, Self::Error> {
         (datum.value() as pg_sys::TimestampTz).try_into()
     }
 }
 
-/// Create a [`TimestampWithTimeZone`] from an existing [`Timestamp`] (which is understood to be
+/// Create a [`TimestampTz`] from an existing [`Timestamp`] (which is understood to be
 /// in the "current time zone" and a time zone string.
-impl<Tz: AsRef<str> + UnwindSafe + RefUnwindSafe> TryFrom<(Timestamp, Tz)>
-    for TimestampWithTimeZone
-{
+impl<Tz: AsRef<str> + UnwindSafe + RefUnwindSafe> TryFrom<(Timestamp, Tz)> for TimestampTz {
     type Error = DateTimeConversionError;
 
     fn try_from(value: (Timestamp, Tz)) -> Result<Self, Self::Error> {
         let (ts, tz) = value;
-        TimestampWithTimeZone::with_timezone(
+        TimestampTz::with_timezone(
             ts.year(),
             ts.month(),
             ts.day(),
@@ -77,13 +75,13 @@ impl<Tz: AsRef<str> + UnwindSafe + RefUnwindSafe> TryFrom<(Timestamp, Tz)>
     }
 }
 
-impl From<Date> for TimestampWithTimeZone {
+impl From<Date> for TimestampTz {
     fn from(value: Date) -> Self {
         unsafe { direct_function_call(pg_sys::date_timestamptz, &[value.into_datum()]).unwrap() }
     }
 }
 
-impl From<Timestamp> for TimestampWithTimeZone {
+impl From<Timestamp> for TimestampTz {
     fn from(value: Timestamp) -> Self {
         unsafe {
             direct_function_call(pg_sys::timestamp_timestamptz, &[value.into_datum()]).unwrap()
@@ -91,7 +89,7 @@ impl From<Timestamp> for TimestampWithTimeZone {
     }
 }
 
-impl IntoDatum for TimestampWithTimeZone {
+impl IntoDatum for TimestampTz {
     fn into_datum(self) -> Option<pg_sys::Datum> {
         Some(pg_sys::Datum::from(self.0))
     }
@@ -100,7 +98,7 @@ impl IntoDatum for TimestampWithTimeZone {
     }
 }
 
-impl FromDatum for TimestampWithTimeZone {
+impl FromDatum for TimestampTz {
     unsafe fn from_polymorphic_datum(
         datum: pg_sys::Datum,
         is_null: bool,
@@ -117,11 +115,11 @@ impl FromDatum for TimestampWithTimeZone {
     }
 }
 
-impl TimestampWithTimeZone {
+impl TimestampTz {
     const NEG_INFINITY: pg_sys::TimestampTz = pg_sys::TimestampTz::MIN;
     const INFINITY: pg_sys::TimestampTz = pg_sys::TimestampTz::MAX;
 
-    /// Construct a new [`TimestampWithTimeZone`] from its constituent parts.
+    /// Construct a new [`TimestampTz`] from its constituent parts.
     ///
     /// # Notes
     ///
@@ -166,7 +164,7 @@ impl TimestampWithTimeZone {
         .execute()
     }
 
-    /// Construct a new [`TimestampWithTimeZone`] from its constituent parts.
+    /// Construct a new [`TimestampTz`] from its constituent parts.
     ///
     /// Elides the overhead of trapping errors for out-of-bounds parts
     ///
@@ -207,7 +205,7 @@ impl TimestampWithTimeZone {
         }
     }
 
-    /// Construct a new [`TimestampWithTimeZone`] from its constituent parts at a specific time zone
+    /// Construct a new [`TimestampTz`] from its constituent parts at a specific time zone
     ///
     /// # Errors
     ///
@@ -254,23 +252,23 @@ impl TimestampWithTimeZone {
         .execute()
     }
 
-    /// Construct a new [`TimestampWithTimeZone`] representing positive infinity
+    /// Construct a new [`TimestampTz`] representing positive infinity
     pub fn positive_infinity() -> Self {
         Self(Self::INFINITY)
     }
 
-    /// Construct a new [`TimestampWithTimeZone`] representing negative infinity
+    /// Construct a new [`TimestampTz`] representing negative infinity
     pub fn negative_infinity() -> Self {
         Self(Self::NEG_INFINITY)
     }
 
-    /// Does this [`TimestampWithTimeZone`] represent positive infinity?
+    /// Does this [`TimestampTz`] represent positive infinity?
     #[inline]
     pub fn is_infinity(&self) -> bool {
         self.0 == Self::INFINITY
     }
 
-    /// Does this [`TimestampWithTimeZone`] represent negative infinity?
+    /// Does this [`TimestampTz`] represent negative infinity?
     #[inline]
     pub fn is_neg_infinity(&self) -> bool {
         self.0 == Self::NEG_INFINITY
@@ -322,7 +320,7 @@ impl TimestampWithTimeZone {
         self.at_timezone("UTC").unwrap()
     }
 
-    /// Shift the [`TimestampWithTimeZone`] to the specified time zone
+    /// Shift the [`TimestampTz`] to the specified time zone
     ///
     /// # Errors
     ///
@@ -356,7 +354,7 @@ impl TimestampWithTimeZone {
         !matches!(self.0, pg_sys::TimestampTz::MIN | pg_sys::TimestampTz::MAX)
     }
 
-    /// Truncate [`TimestampWithTimeZone`] to specified units
+    /// Truncate [`TimestampTz`] to specified units
     pub fn truncate(self, units: DateTimeParts) -> Self {
         unsafe {
             direct_function_call(
@@ -367,7 +365,7 @@ impl TimestampWithTimeZone {
         }
     }
 
-    /// Truncate [`TimestampWithTimeZone`] to specified units in specified time zone
+    /// Truncate [`TimestampTz`] to specified units in specified time zone
     pub fn truncate_with_time_zone<Tz: AsRef<str>>(self, units: DateTimeParts, zone: Tz) -> Self {
         unsafe {
             direct_function_call(
@@ -379,7 +377,7 @@ impl TimestampWithTimeZone {
     }
 
     /// Subtract `other` from `self`, producing a “symbolic” result that uses years and months, rather than just days
-    pub fn age(&self, other: &TimestampWithTimeZone) -> Interval {
+    pub fn age(&self, other: &TimestampTz) -> Interval {
         let ts_self: Timestamp = (*self).into();
         let ts_other: Timestamp = (*other).into();
         ts_self.age(&ts_other)
@@ -410,8 +408,8 @@ pub enum FromTimeError {
     SecondsOutOfBounds,
 }
 
-impl serde::Serialize for TimestampWithTimeZone {
-    /// Serialize this [`TimestampWithTimeZone`] in ISO form, compatible with most JSON parsers
+impl serde::Serialize for TimestampTz {
+    /// Serialize this [`TimestampTz`] in ISO form, compatible with most JSON parsers
     fn serialize<S>(
         &self,
         serializer: S,
@@ -425,7 +423,7 @@ impl serde::Serialize for TimestampWithTimeZone {
     }
 }
 
-impl<'de> serde::Deserialize<'de> for TimestampWithTimeZone {
+impl<'de> serde::Deserialize<'de> for TimestampTz {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::de::Deserializer<'de>,
@@ -434,7 +432,7 @@ impl<'de> serde::Deserialize<'de> for TimestampWithTimeZone {
     }
 }
 
-unsafe impl SqlTranslatable for TimestampWithTimeZone {
+unsafe impl SqlTranslatable for TimestampTz {
     fn argument_sql() -> Result<SqlMapping, ArgumentError> {
         Ok(SqlMapping::literal("timestamp with time zone"))
     }
