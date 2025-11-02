@@ -40,7 +40,7 @@ fn accept_range_ts(range: Range<Timestamp>) -> Range<Timestamp> {
 }
 
 #[pg_extern]
-fn accept_range_tstz(range: Range<TimestampWithTimeZone>) -> Range<TimestampWithTimeZone> {
+fn accept_range_tstz(range: Range<TimestampTz>) -> Range<TimestampWithTimeZone> {
     range
 }
 

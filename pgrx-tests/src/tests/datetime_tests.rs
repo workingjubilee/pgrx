@@ -40,27 +40,23 @@ fn accept_timestamp(t: Timestamp) -> Timestamp {
 }
 
 #[pg_extern]
-fn accept_timestamp_with_time_zone(t: TimestampWithTimeZone) -> TimestampWithTimeZone {
+fn accept_timestamp_with_time_zone(t: TimestampTz) -> TimestampWithTimeZone {
     t
 }
 
 #[pg_extern]
-fn accept_timestamp_with_time_zone_offset_round_trip(
-    t: TimestampWithTimeZone,
-) -> TimestampWithTimeZone {
+fn accept_timestamp_with_time_zone_offset_round_trip(t: TimestampTz) -> TimestampTz {
     t
 }
 
 #[pg_extern]
-fn accept_timestamp_with_time_zone_datetime_round_trip(
-    t: TimestampWithTimeZone,
-) -> TimestampWithTimeZone {
+fn accept_timestamp_with_time_zone_datetime_round_trip(t: TimestampTz) -> TimestampTz {
     t
 }
 
 #[pg_extern]
-fn return_3pm_mountain_time() -> TimestampWithTimeZone {
-    TimestampWithTimeZone::with_timezone(2020, 2, 19, 15, 0, 0.0, "MST").unwrap()
+fn return_3pm_mountain_time() -> TimestampTz {
+    TimestampTz::with_timezone(2020, 2, 19, 15, 0, 0.0, "MST").unwrap()
 }
 
 #[pg_extern(sql = r#"
@@ -297,7 +293,7 @@ mod tests {
 
     #[pg_test]
     fn test_return_3pm_mountain_time() -> Result<(), pgrx::spi::Error> {
-        let result = Spi::get_one::<TimestampWithTimeZone>(
+        let result = Spi::get_one::<TimestampTz>(
             "SET timezone TO 'UTC'; SELECT return_3pm_mountain_time();",
         )?
         .expect("datum was null");
@@ -308,10 +304,9 @@ mod tests {
 
     #[pg_test]
     fn test_is_timestamp_with_time_zone_utc() -> Result<(), pgrx::spi::Error> {
-        let ts = Spi::get_one::<TimestampWithTimeZone>(
-            "SELECT '2020-02-18 14:08 -07'::timestamp with time zone",
-        )?
-        .expect("datum was null");
+        let ts =
+            Spi::get_one::<TimestampTz>("SELECT '2020-02-18 14:08 -07'::timestamp with time zone")?
+                .expect("datum was null");
 
         assert_eq!(ts.to_utc().hour(), 21);
         Ok(())
@@ -352,7 +347,7 @@ mod tests {
     #[pg_test]
     fn test_timestamp_with_timezone_serialization() {
         let time_stamp_with_timezone =
-            TimestampWithTimeZone::with_timezone(2022, 2, 2, 16, 57, 11.0, "CEST").unwrap();
+            TimestampTz::with_timezone(2022, 2, 2, 16, 57, 11.0, "CEST").unwrap();
 
         // prevents PG's timestamp serialization from imposing the local servers time zone
         Spi::run("SET TIME ZONE 'UTC'").expect("SPI failed");
@@ -385,14 +380,12 @@ mod tests {
         );
         assert_eq!(result, Ok(Some(true)));
 
-        let tstz =
-            Spi::get_one::<TimestampWithTimeZone>("SELECT TIMESTAMP WITH TIME ZONE'infinity'")?
-                .expect("datum was null");
+        let tstz = Spi::get_one::<TimestampTz>("SELECT TIMESTAMP WITH TIME ZONE'infinity'")?
+            .expect("datum was null");
         assert!(tstz.is_infinity());
 
-        let tstz =
-            Spi::get_one::<TimestampWithTimeZone>("SELECT TIMESTAMP WITH TIME ZONE'-infinity'")?
-                .expect("datum was null");
+        let tstz = Spi::get_one::<TimestampTz>("SELECT TIMESTAMP WITH TIME ZONE'-infinity'")?
+            .expect("datum was null");
         assert!(tstz.is_neg_infinity());
         Ok(())
     }
@@ -426,7 +419,7 @@ mod tests {
         assert_eq!(TimeWithTimeZone::with_timezone(12, 0, 0.0, "UTC")?, TimeWithTimeZone::from_str("12:00:00 UTC")?);
         assert_eq!(Date::new(2023, 5, 13)?, Date::from_str("2023-5-13")?);
         assert_eq!(Timestamp::new(2023, 5, 13, 4, 56, 42.0)?, Timestamp::from_str("2023-5-13 04:56:42")?);
-        assert_eq!(TimestampWithTimeZone::new(2023, 5, 13, 4, 56, 42.0)?, TimestampWithTimeZone::from_str("2023-5-13 04:56:42")?);
+        assert_eq!(TimestampTz::new(2023, 5, 13, 4, 56, 42.0)?, TimestampWithTimeZone::from_str("2023-5-13 04:56:42")?);
         assert_eq!(Interval::from_months(1), Interval::from_str("1 month")?);
         Ok(())
     }

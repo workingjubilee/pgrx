@@ -157,8 +157,8 @@ mod tests {
     roundtrip!(
         rt_tstz,
         test_rt_tstz,
-        TimestampWithTimeZone,
-        TimestampWithTimeZone::from_str("1977-03-20 04:42:00 PDT").unwrap()
+        TimestampTz,
+        TimestampTz::from_str("1977-03-20 04:42:00 PDT").unwrap()
     );
     roundtrip!(rt_time, test_rt_time, Time, Time::from_str("04:42:00").unwrap());
     roundtrip!(
@@ -388,13 +388,13 @@ mod tests {
     roundtrip!(
         rt_array_tstz,
         test_rt_array_tstz,
-        Vec<Option<TimestampWithTimeZone>>,
+        Vec<Option<TimestampTz>>,
         vec![
             None,
-            Some(TimestampWithTimeZone::from_str("1977-03-20 04:42:00 PDT").unwrap()),
-            Some(TimestampWithTimeZone::from_str("2000-01-01 04:42:00 PDT").unwrap()),
+            Some(TimestampTz::from_str("1977-03-20 04:42:00 PDT").unwrap()),
+            Some(TimestampTz::from_str("2000-01-01 04:42:00 PDT").unwrap()),
             None,
-            Some(TimestampWithTimeZone::from_str("2023-07-04 04:42:00 PDT").unwrap()),
+            Some(TimestampTz::from_str("2023-07-04 04:42:00 PDT").unwrap()),
             None
         ]
     );
