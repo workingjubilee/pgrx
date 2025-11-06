@@ -21,7 +21,9 @@ use std::panic::{RefUnwindSafe, UnwindSafe};
 /// A safe wrapper around Postgres `TIME WITH TIME ZONE` type, backed by a [`pg_sys::TimeTzADT`] integer value.
 #[derive(Debug, Copy, Clone)]
 #[repr(transparent)]
-pub struct TimeWithTimeZone(pg_sys::TimeTzADT);
+pub struct TimeTz(pg_sys::TimeTzADT);
+
+pub type TimeWithTimeZone = TimeTz;
 
 impl From<TimeWithTimeZone> for pg_sys::TimeTzADT {
     #[inline]

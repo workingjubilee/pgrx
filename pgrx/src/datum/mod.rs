@@ -35,7 +35,13 @@ mod with_typeid;
 
 pub use self::uuid::*;
 pub use crate::datetime::support as datetime_support;
-pub use crate::datetime::*;
+pub use crate::datetime::{
+    Date, DateTimeConversionError, DateTimeParts, FromTimeError, HasExtractableParts, Interval,
+    IntervalConversionError, POSTGRES_EPOCH_JDATE, Time, TimeWithTimeZone, Timestamp,
+    TimestampPrecision, TimestampWithTimeZone, ToIsoString, UNIX_EPOCH_JDATE, USECS_PER_DAY,
+    USECS_PER_SEC, clock_timestamp, current_date, current_time, current_timestamp, local_timestamp,
+    now, statement_timestamp, time_of_day, to_timestamp, transaction_timestamp,
+};
 pub use anyarray::*;
 pub use anyelement::*;
 pub use array::*;

@@ -27,7 +27,9 @@ const END_TIMESTAMP_USEC: i64 = 9_223_371_331_200_000_000 - 1; // dec by 1 to ac
 /// A safe wrapper around Postgres `TIMESTAMP WITH TIME ZONE` type, backed by a [`pg_sys::Timestamp`] integer value.
 #[derive(Debug, Copy, Clone)]
 #[repr(transparent)]
-pub struct TimestampWithTimeZone(pg_sys::TimestampTz);
+pub struct TimestampTz(pg_sys::TimestampTz);
+
+pub type TimestampWithTimeZone = TimestampTz;
 
 impl From<TimestampWithTimeZone> for pg_sys::TimestampTz {
     #[inline]
